@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-F3w7mX95PdgyTmZZMECAngseQB83DfGTowi0iMjiWaeVhAn4FJkqJByhZMI3AhiU" crossorigin="anonymous">
+    <link href="../styles/style_page.css?v=<?=time()?>" rel="stylesheet" type="text/css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>校友資料表</title>
+    <script src="../scripts/main.js" async></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+</head>
+<body>
+
+
+
+<form action="db_writein.php" method="post" id="myForm">
+    <h2>校友資料表</h2>
+        <table> 
+            <!-- Button trigger modal -->
+        <!-- Modal -->
+        <div class="modal fade" id="staticBackdrop" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="staticBackdropLabel" aria-hidden="true">
+            <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                <h5 class="modal-title" id="staticBackdropLabel">校友資料表填寫</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    校友名稱<input class="name" type="text" name="name" required>
+                    現職<input class="position" type="text" name="position" required>
+                    Gmail<input class="gmail" type="text" name="gmail" required>
+                    生日日期 (YYYY/MM//DD)<input class="birthdate" type="text" name="birthdate" required>
+                    畢業年 (西元年)<input class="graduation_year" type="text" name="graduation_year" required>
+                </div>
+                <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+                <button type="submit" class="btn btn-primary" id="submit_comment">新增資料</button>
+                </div>
+            </div>
+            </div>
+        </div>
+        <div class="new_data">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#staticBackdrop">
+                新增資料
+            </button>
+        </div>
+        <div id="row_head">
+            <thead>
+                <tr>
+                    <th>校友名稱</th>
+                    <th>現職</th>
+                    <th>Gmail</th>
+                    <th>生日日期 (例20050418)</th>
+                    <th>畢業年 (西元年)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>
+                        <div id="dataContainer_name" class="dataContainer">
+
+                        </div>
+                    </td>
+                    <td>
+                        <div id="dataContainer_position" class="dataContainer">
+
+                        </div>
+                    </td>
+                    <td>
+                        <div id="dataContainer_gmail" class="dataContainer">
+
+                        </div>
+                    </td>
+                    <td>
+                        <div id="dataContainer_birthdate" class="dataContainer">
+
+                        </div>
+                    </td>
+                    <td>
+                        <div id="dataContainer_graduation_year" class="dataContainer">
+
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </div>                   
+        </table>
+        
+</form>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-/bQdsTh/da6pkI1MST/rWKFNjaCP5gBSY4sEBT38Q/9RBh9AH40zEOg7Hlq2THRZ" crossorigin="anonymous"></script>
+</body>
+</html>
+
+
+<script>
+    $(document).ready(function(){
+        // 在頁面載入時即刻顯示資料庫中的資料
+        showDatabaseData();
+
+        $("#submit_comment").click(function(){
+            showDatabaseData();
+        });
+    });
+
+    function showDatabaseData() {
+        $.ajax({
+            url: "db_writein.php",
+            type: "GET",
+            success: function(data){
+                var jsonData = JSON.parse(data);
+                // 清空之前的資料，以防止重複插入
+                $(".dataContainer").empty();
+                for (var i = 0; i < jsonData.length; i++) {
+                    $("#dataContainer_name").append("<div>" + jsonData[i].name + "</div>");
+                    $("#dataContainer_position").append("<div>" + jsonData[i].position + "</div>");
+                    $("#dataContainer_gmail").append("<div>" + jsonData[i].gmail + "</div>");
+                    $("#dataContainer_birthdate").append("<div>" + jsonData[i].birthdate + "</div>");
+                    $("#dataContainer_graduation_year").append("<div>" + jsonData[i].graduation_year + "</div>");
+                }
+            }
+        });
+    }
+</script>

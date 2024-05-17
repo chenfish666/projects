@@ -1,0 +1,39 @@
+<html>
+<head>
+<link href="styles/style.css?v=<?=time()?>" rel="stylesheet" type="text/css" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>會員註冊</title>
+    <script>
+        
+        function validateForm() {
+            var x = document.forms["registerForm"]["password"].value;
+            var y = document.forms["registerForm"]["password_check"].value;
+            if(x.length<=4){
+                alert("密碼長度不足");
+                return false;
+            }
+            if (x != y) {
+                alert("請確認密碼是否輸入正確");
+                return false;
+            }
+        }
+    </script>
+    
+</head>
+<body>
+    <form method="post" action="demo/register.php" onsubmit="return validateForm()">
+        <h2>註冊頁面</h2>
+        帳  號：
+        <input type="text" name="username" required placeholder="Gmail帳號"><br/><br/>
+        密  碼：
+        <input type="password" name="password" id="password" required placeholder="密碼長度大於等於4"><br/><br/>
+        確認密碼：
+        <input type="password" name="password_check" id="password_check" required placeholder="密碼長度大於等於4"><br/><br/>
+        <a href="index.html">已經有帳號了?</a>
+        <input type="submit" value="註冊" name="submit">
+        <input type="reset" value="重設" name="submit">
+    </form>
+
+
+</body>
+</html>

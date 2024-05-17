@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="styles/style.css?v=<?=time()?>" rel="stylesheet" type="text/css" />
+    <meta charset="utf-8"/>
+</head>
+<body>   
+    <form action="demo/login.php" method="post">
+        <h2>登入頁面</h2>
+        <label>帳  號：</label>
+        <input type="account" name="username" placeholder="Gmail帳號" required maxlength="18"><br>
+
+        <label>密  碼：</label>
+        <input type="password" name="password" placeholder="密碼" required maxlength="9"><br>
+        <a href="register.html">註冊帳號?</a>
+        <button type="submit">login</button>
+    </form>
+</body>
+</html>
