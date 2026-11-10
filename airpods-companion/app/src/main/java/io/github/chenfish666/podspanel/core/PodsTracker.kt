@@ -36,8 +36,12 @@ class PodsTracker(
 
     /**
      * Feeds one broadcast. Returns true when it was accepted as coming from the followed pair.
+     *
+     * @param minRssi weakest signal that may start following a pair. Callers lower it while
+     *   AirPods are connected to this phone: the pair is then known to be around, and a phone in
+     *   a pocket hears earbuds through the body far more faintly than one held next to a case.
      */
-    fun offer(status: PodsStatus, rssi: Int, nowMs: Long): Boolean {
+    fun offer(status: PodsStatus, rssi: Int, nowMs: Long, minRssi: Int = this.minRssi): Boolean {
         val followed = current
         val stale = followed == null || nowMs - seenAtMs > staleAfterMs
 

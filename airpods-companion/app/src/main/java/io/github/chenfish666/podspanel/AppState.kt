@@ -21,6 +21,35 @@ object AppState {
 
     val alarmRinging = MutableStateFlow(false)
 
+    val scan = MutableStateFlow(ScanInfo())
+
+    /** What the scanner has seen so far; shown in the app so a problem can be told apart. */
+    data class ScanInfo(
+        val level: String = "",
+        val fast: Boolean = false,
+        /** Broadcasts delivered by the system, of any kind that passed the chip's filter. */
+        val results: Long = 0,
+        val appleResults: Long = 0,
+        val statusFrames: Long = 0,
+        /** Status broadcasts taken as coming from the user's own pair. */
+        val accepted: Long = 0,
+        val tooWeak: Long = 0,
+        val strongestRssi: Int? = null,
+        val lastFrameHex: String? = null,
+        val lastFrameAgeSeconds: Long? = null,
+    ) {
+        fun describe(): String = buildString {
+            append("掃描方式：").append(level.ifEmpty { "未啟動" }).append(if (fast) "・快速" else "・省電")
+            append("\n收到廣播 ").append(results)
+            append("・Apple 裝置 ").append(appleResults)
+            append("・耳機狀態 ").append(statusFrames)
+            append("\n採用 ").append(accepted).append("・訊號太弱略過 ").append(tooWeak)
+            append("・最強訊號 ").append(strongestRssi?.let { "$it dBm" } ?: "—")
+            append("\n最近一筆：")
+            append(lastFrameHex?.let { "$it（$lastFrameAgeSeconds 秒前）" } ?: "尚未收到")
+        }
+    }
+
     data class EqState(
         val active: Boolean = false,
         /** Shown under the switch: which effect is in use, or why none could be created. */

@@ -39,6 +39,8 @@
 
     <string name="advanced_title">進階</string>
     <string name="scan_compat">相容掃描模式</string>
-    <string name="scan_compat_hint">一直偵測不到耳機時再開啟。開啟後只有螢幕亮著時才會更新電量。</string>
+    <string name="diagnostics_title">診斷資訊</string>
+    <string name="diagnostics_copy">複製診斷資訊</string>
+    <string name="scan_compat_hint">App 會自動找出這支手機收得到耳機廣播的掃描方式；一直偵測不到耳機時可以手動開啟。開啟後只有螢幕亮著時才會更新電量。</string>
     <string name="about">電量來自 AirPods 的藍牙廣播，以 10% 為單位。主動降噪切換等功能需要 Apple 的專屬通道，這個版本沒有提供。</string>
 </resources>

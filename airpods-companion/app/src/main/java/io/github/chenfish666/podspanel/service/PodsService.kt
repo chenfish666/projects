@@ -14,11 +14,13 @@ import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.location.LocationManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -65,6 +67,14 @@ class PodsService : Service() {
     private var mediaForeground = false
     private var started = false
 
+    // Scan supervision: which filter level is in use, and whether coarser ones were tried.
+    private var activeLevel = PodsScanner.Level.STATUS
+    private var levelSinceMs = 0L
+    private var probeExhausted = false
+    private var compatApplied = false
+    private var accepted = 0L
+    private var tooWeak = 0L
+
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             Prefs.KEY_SAVED_ALARM_VOLUME, Prefs.KEY_SAVED_MUSIC_VOLUME -> Unit
@@ -86,7 +96,9 @@ class PodsService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             publish()
+            superviseScan()
             updateScan()
+            publishScanInfo()
             handler.postDelayed(this, TICK_MS)
         }
     }
@@ -129,6 +141,7 @@ class PodsService : Service() {
             ACTION_TEST_ALARM -> alarm.test()
             ACTION_FAST_SCAN -> {
                 fastScanUntil = SystemClock.elapsedRealtime() + FAST_SCAN_MS
+                probeExhausted = false
                 updateScan()
             }
         }
@@ -146,6 +159,8 @@ class PodsService : Service() {
         prefs.store.registerOnSharedPreferenceChangeListener(prefsListener)
         equalizer.startListening()
         alarm.start()
+        compatApplied = prefs.scanCompat
+        setLevel(baseLevel())
         applySettings()
         handler.post(tick)
     }
@@ -172,7 +187,12 @@ class PodsService : Service() {
     private fun onStatus(status: PodsStatus, rssi: Int) {
         val now = SystemClock.elapsedRealtime()
         val before = tracker.snapshot(now)
-        if (!tracker.offer(status, rssi, now)) return
+        val minRssi = if (podsConnected()) CONNECTED_MIN_RSSI else NEARBY_MIN_RSSI
+        if (!tracker.offer(status, rssi, now, minRssi)) {
+            if (rssi < minRssi) tooWeak++
+            return
+        }
+        accepted++
         val after = tracker.snapshot(now) ?: return
         publish(after)
         popup.update(after.status)
@@ -248,6 +268,7 @@ class PodsService : Service() {
     private fun onHeadphonesConnected() {
         val now = SystemClock.elapsedRealtime()
         fastScanUntil = now + FAST_SCAN_MS
+        probeExhausted = false
         updateScan()
         if (!prefs.popupOnConnect) return
         val live = tracker.snapshot(now)?.takeIf { it.live }
@@ -262,6 +283,12 @@ class PodsService : Service() {
     // ---- Settings ----
 
     private fun applySettings() {
+        // The compatibility switch overrides whatever level was found automatically.
+        if (prefs.scanCompat != compatApplied) {
+            compatApplied = prefs.scanCompat
+            probeExhausted = false
+            setLevel(baseLevel())
+        }
         updateScan()
         applyEqualizer()
         alarm.evaluate()
@@ -282,7 +309,83 @@ class PodsService : Service() {
             return
         }
         val fast = uiVisible || SystemClock.elapsedRealtime() < fastScanUntil
-        scanner.start(fast = fast, filtered = !prefs.scanCompat)
+        scanner.start(fast = fast, level = activeLevel)
+    }
+
+    /** The level to scan at when nothing is being probed. */
+    private fun baseLevel(): PodsScanner.Level =
+        if (prefs.scanCompat) PodsScanner.Level.OPEN
+        else PodsScanner.Level.entries[prefs.scanLevel.coerceIn(0, PodsScanner.Level.entries.lastIndex)]
+
+    private fun setLevel(level: PodsScanner.Level) {
+        activeLevel = level
+        levelSinceMs = SystemClock.elapsedRealtime()
+    }
+
+    /** True when the connected headphones are ones that send the status broadcasts. */
+    private fun podsConnected(): Boolean {
+        val name = AppState.headphones.value ?: return false
+        return POD_NAMES.any { name.contains(it, ignoreCase = true) }
+    }
+
+    /**
+     * Works around phones that drop AirPods broadcasts when the Bluetooth chip filters for them.
+     *
+     * While AirPods are connected to this phone they broadcast every few seconds, so silence
+     * means the broadcasts are being lost on the way. Each period of silence steps down to a
+     * coarser filter; the first level that delivers is remembered. Only done with the screen on:
+     * with it off, results are legitimately delayed, and the unfiltered level delivers nothing.
+     */
+    private fun superviseScan() {
+        val now = SystemClock.elapsedRealtime()
+        val heardAtThisLevel = scanner.lastFrameAtMs > levelSinceMs
+        val silentForMs = now - maxOf(scanner.lastFrameAtMs, levelSinceMs)
+
+        if (heardAtThisLevel && silentForMs < PROBE_MS) {
+            if (!prefs.scanCompat && activeLevel.ordinal > prefs.scanLevel) prefs.scanLevel = activeLevel.ordinal
+            return
+        }
+        val expecting = podsConnected() || (uiVisible && !heardAtThisLevel)
+        val screenOn = getSystemService(PowerManager::class.java)?.isInteractive == true
+        if (!expecting || !screenOn || probeExhausted || silentForMs < PROBE_MS) return
+
+        val coarser = activeLevel.coarser()
+        if (coarser != null && !prefs.scanCompat) {
+            Log.i(TAG, "No status broadcasts at $activeLevel for ${silentForMs}ms, trying $coarser")
+            setLevel(coarser)
+            updateScan()
+        } else {
+            probeExhausted = true
+            setLevel(baseLevel())
+            updateScan()
+            if (podsConnected()) AppState.scanProblem.value = silenceAdvice()
+        }
+    }
+
+    private fun silenceAdvice(): String {
+        val locationOff = getSystemService(LocationManager::class.java)?.isLocationEnabled != true
+        return buildString {
+            append("收不到這副耳機的狀態廣播。")
+            // Not needed on stock Android, but some manufacturers hold back scan results without it.
+            if (scanner.results == 0L && locationOff) append("可以試著開啟手機的定位服務後，重新開啟這個 App。")
+            append("仍然不行的話，請把最下方「進階」裡的診斷資訊複製給開發者。")
+        }
+    }
+
+    private fun publishScanInfo() {
+        val now = SystemClock.elapsedRealtime()
+        AppState.scan.value = AppState.ScanInfo(
+            level = scanner.level.label,
+            fast = scanner.fast,
+            results = scanner.results,
+            appleResults = scanner.appleResults,
+            statusFrames = scanner.statusFrames,
+            accepted = accepted,
+            tooWeak = tooWeak,
+            strongestRssi = scanner.strongestRssi,
+            lastFrameHex = scanner.lastFrameHex,
+            lastFrameAgeSeconds = scanner.lastFrameAtMs.takeIf { it > 0 }?.let { (now - it) / 1000 },
+        )
     }
 
     // ---- Notifications ----
@@ -390,6 +493,15 @@ class PodsService : Service() {
         private const val FAST_SCAN_MS = 30_000L
         private const val CONNECT_POPUP_WINDOW_MS = 20_000L
         private const val POPUP_GAP_MS = 20_000L
+        private const val PROBE_MS = 10_000L
+
+        /** Weakest signal that may start following a pair seen in passing. */
+        private const val NEARBY_MIN_RSSI = -72
+
+        /** The same while AirPods are connected to this phone, e.g. worn with the phone in a pocket. */
+        private const val CONNECTED_MIN_RSSI = -92
+
+        private val POD_NAMES = listOf("AirPods", "Beats")
 
         /** A case opened next to the phone is this loud or louder; a stranger's rarely is. */
         private const val LID_POPUP_MIN_RSSI = -60

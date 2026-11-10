@@ -288,8 +288,29 @@
                 <TextView style="@style/Hint" android:text="@string/scan_compat_hint" />
 
                 <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/diagnostics_title"
+                    android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                <TextView
+                    android:id="@+id/diagnostics"
                     style="@style/Hint"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="4dp"
+                    android:textIsSelectable="true" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/diagnosticsCopy"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/diagnostics_copy" />
+
+                <TextView
+                    style="@style/Hint"
+                    android:layout_marginTop="16dp"
                     android:text="@string/about" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

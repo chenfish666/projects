@@ -24,11 +24,46 @@ class PodsScanner(
     private val onProblem: (String?) -> Unit,
 ) {
 
+    /**
+     * How much of the filtering is left to the Bluetooth chip. Some phones (several running
+     * HyperOS among them) silently drop AirPods broadcasts when the chip filters for them, so
+     * the caller can step down to a coarser filter, at the cost of more work for this app.
+     */
+    enum class Level(val label: String) {
+        /** The chip passes only AirPods status broadcasts. */
+        STATUS("只收耳機狀態（硬體過濾）"),
+
+        /** The chip passes every broadcast of an Apple device; this app picks out the status ones. */
+        APPLE("只收 Apple 裝置（硬體過濾）"),
+
+        /** No chip filter. The system only delivers results while the screen is on. */
+        OPEN("不過濾（僅螢幕亮著時有資料）");
+
+        fun coarser(): Level? = entries.getOrNull(ordinal + 1)
+    }
+
     private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
     private var running = false
-    private var fast = false
-    private var filtered = true
     private val recentStarts = ArrayDeque<Long>()
+
+    var fast = false
+        private set
+    var level = Level.STATUS
+        private set
+
+    /** Counters since the service started, for the diagnostics shown in the app. */
+    var results = 0L
+        private set
+    var appleResults = 0L
+        private set
+    var statusFrames = 0L
+        private set
+    var strongestRssi: Int? = null
+        private set
+    var lastFrameHex: String? = null
+        private set
+    var lastFrameAtMs = 0L
+        private set
 
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
@@ -43,8 +78,15 @@ class PodsScanner(
     }
 
     private fun handle(result: ScanResult) {
-        val data = result.scanRecord?.getManufacturerSpecificData(ProximityParser.APPLE_COMPANY_ID)
+        results++
+        val data = result.scanRecord?.getManufacturerSpecificData(ProximityParser.APPLE_COMPANY_ID) ?: return
+        appleResults++
         val status = ProximityParser.parse(data) ?: return
+        statusFrames++
+        strongestRssi = maxOf(strongestRssi ?: result.rssi, result.rssi)
+        // Only the readable part; the rest of the broadcast is encrypted.
+        lastFrameHex = data.take(11).joinToString(" ") { "%02X".format(it) }
+        lastFrameAtMs = SystemClock.elapsedRealtime()
         onProblem(null)
         onStatus(status, result.rssi)
     }
@@ -53,31 +95,30 @@ class PodsScanner(
      * Starts scanning, or switches an ongoing scan to the given settings.
      *
      * @param fast scan continuously; otherwise in short low-power windows
-     * @param filtered let the Bluetooth chip pre-filter for AirPods. Required for results while
-     *   the screen is off, but some firmware delivers nothing with it.
+     * @return true when the scan now runs with the given settings
      */
-    fun start(fast: Boolean, filtered: Boolean) {
-        if (running && this.fast == fast && this.filtered == filtered) return
+    fun start(fast: Boolean, level: Level): Boolean {
+        if (running && this.fast == fast && this.level == level) return true
 
         val adapter = bluetoothManager?.adapter
         if (adapter == null || !adapter.isEnabled) {
             stop()
             onProblem("藍牙已關閉")
-            return
+            return false
         }
         val scanner = adapter.bluetoothLeScanner
         if (scanner == null) {
             onProblem("此裝置不支援藍牙低功耗掃描")
-            return
+            return false
         }
 
         // The system silently ignores an app that starts more than five scans in 30 seconds.
         // When that budget is used up, keep the current scan rather than lose it.
         val now = SystemClock.elapsedRealtime()
         while (recentStarts.isNotEmpty() && now - recentStarts.first() > 30_000) recentStarts.removeFirst()
-        if (running && recentStarts.size >= 4) return
+        if (running && recentStarts.size >= 4) return false
 
-        try {
+        return try {
             if (running) scanner.stopScan(callback)
             val settings = ScanSettings.Builder()
                 .setScanMode(if (fast) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
@@ -86,20 +127,27 @@ class PodsScanner(
                 .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
                 .setReportDelay(0)
                 .build()
-            val filters = if (filtered) listOf(statusFilter()) else emptyList()
+            val filters = when (level) {
+                Level.STATUS -> listOf(statusFilter())
+                Level.APPLE -> listOf(appleFilter())
+                Level.OPEN -> emptyList()
+            }
             scanner.startScan(filters, settings, callback)
             recentStarts.addLast(now)
             running = true
             this.fast = fast
-            this.filtered = filtered
+            this.level = level
             onProblem(null)
+            true
         } catch (e: SecurityException) {
             running = false
             onProblem("缺少藍牙權限")
+            false
         } catch (e: RuntimeException) {
             Log.w(TAG, "Could not start scan", e)
             running = false
             onProblem("無法啟動藍牙掃描")
+            false
         }
     }
 
@@ -123,6 +171,10 @@ class PodsScanner(
             .setManufacturerData(ProximityParser.APPLE_COMPANY_ID, prefix, mask)
             .build()
     }
+
+    private fun appleFilter(): ScanFilter = ScanFilter.Builder()
+        .setManufacturerData(ProximityParser.APPLE_COMPANY_ID, ByteArray(0))
+        .build()
 
     private companion object {
         const val TAG = "PodsScanner"

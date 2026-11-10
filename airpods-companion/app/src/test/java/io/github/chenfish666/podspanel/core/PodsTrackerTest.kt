@@ -26,6 +26,13 @@ class PodsTrackerTest {
     }
 
     @Test
+    fun `a faint broadcast is followed when the caller knows the pair is connected`() {
+        val tracker = PodsTracker()
+        assertTrue(tracker.offer(status(), rssi = -85, nowMs = 0, minRssi = -92))
+        assertEquals(90, tracker.snapshot(0)?.status?.left)
+    }
+
+    @Test
     fun `a nearby pair is followed`() {
         val tracker = PodsTracker()
         assertTrue(tracker.offer(status(), rssi = -50, nowMs = 0))

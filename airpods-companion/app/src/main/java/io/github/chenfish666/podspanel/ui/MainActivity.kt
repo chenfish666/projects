@@ -2,8 +2,11 @@ package io.github.chenfish666.podspanel.ui
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
+import android.location.LocationManager
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
@@ -92,6 +95,11 @@ class MainActivity : AppCompatActivity() {
         setUpAlarmCard()
         binding.scanCompat.isChecked = prefs.scanCompat
         binding.scanCompat.setOnCheckedChangeListener { _, checked -> prefs.scanCompat = checked }
+        binding.diagnosticsCopy.setOnClickListener {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard.setPrimaryClip(ClipData.newPlainText("PodsPanel", diagnosticsReport()))
+            toast("已複製")
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -100,6 +108,7 @@ class MainActivity : AppCompatActivity() {
                         .collect { (pods, headphones, problem) -> showStatus(pods, headphones, problem) }
                 }
                 launch { AppState.eq.collect(::showEqState) }
+                launch { AppState.scan.collect { binding.diagnostics.text = it.describe() } }
             }
         }
     }
@@ -121,6 +130,29 @@ class MainActivity : AppCompatActivity() {
         PodsService.uiVisible = false
         super.onStop()
     }
+
+    /** Everything needed to tell from afar why the headphones are not being detected. */
+    private fun diagnosticsReport(): String {
+        val version = packageManager.getPackageInfo(packageName, 0).versionName
+        val location = getSystemService(LocationManager::class.java)?.isLocationEnabled == true
+        return buildString {
+            appendLine("PodsPanel $version")
+            appendLine("${Build.MANUFACTURER} ${Build.MODEL}・Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）")
+            appendLine("系統版本：${Build.DISPLAY}")
+            appendLine("藍牙耳機：${AppState.headphones.value ?: "未連線"}")
+            appendLine(
+                "權限：藍牙 ${yesNo(Permissions.hasBluetooth(this@MainActivity))}" +
+                    "・通知 ${yesNo(Permissions.hasNotifications(this@MainActivity))}" +
+                    "・懸浮視窗 ${yesNo(Permissions.hasOverlay(this@MainActivity))}" +
+                    "・不限制背景 ${yesNo(Permissions.ignoresBatteryOptimizations(this@MainActivity))}"
+            )
+            appendLine("定位服務：${if (location) "開" else "關"}・相容掃描模式：${if (prefs.scanCompat) "開" else "關"}")
+            appendLine("服務：${if (AppState.serviceRunning.value) "執行中" else "未執行"}・${AppState.scanProblem.value ?: "掃描無錯誤"}")
+            append(AppState.scan.value.describe())
+        }
+    }
+
+    private fun yesNo(value: Boolean) = if (value) "✓" else "✗"
 
     // ---- Status ----
 

@@ -72,6 +72,14 @@ class Prefs(context: Context) {
         get() = store.getInt(KEY_SAVED_MUSIC_VOLUME, -1)
         set(v) = store.edit().putInt(KEY_SAVED_MUSIC_VOLUME, v).commit().let { }
 
+    /**
+     * The coarsest scan filter this phone turned out to need, as an index into the scanner's
+     * levels. Found automatically: see the scan supervision in the service.
+     */
+    var scanLevel: Int
+        get() = store.getInt(KEY_SCAN_LEVEL, 0)
+        set(v) = store.edit().putInt(KEY_SCAN_LEVEL, v).apply()
+
     /** Scan without a hardware filter. Slower on battery, but some firmware drops filtered results. */
     var scanCompat: Boolean
         get() = store.getBoolean(KEY_SCAN_COMPAT, false)
@@ -92,5 +100,6 @@ class Prefs(context: Context) {
         const val KEY_SAVED_ALARM_VOLUME = "saved_alarm_volume"
         const val KEY_SAVED_MUSIC_VOLUME = "saved_music_volume"
         const val KEY_SCAN_COMPAT = "scan_compat"
+        const val KEY_SCAN_LEVEL = "scan_level"
     }
 }
