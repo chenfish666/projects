@@ -37,6 +37,8 @@ object AppState {
         val strongestRssi: Int? = null,
         val lastFrameHex: String? = null,
         val lastFrameAgeSeconds: Long? = null,
+        /** Breakdown of what was received, only for the copied report. */
+        val detail: String = "",
     ) {
         fun describe(): String = buildString {
             append("掃描方式：").append(level.ifEmpty { "未啟動" }).append(if (fast) "・快速" else "・省電")

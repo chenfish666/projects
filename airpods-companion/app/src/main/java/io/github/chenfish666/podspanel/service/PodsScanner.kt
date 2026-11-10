@@ -65,6 +65,13 @@ class PodsScanner(
     var lastFrameAtMs = 0L
         private set
 
+    // Finer detail for the copied diagnostics report: what arrives, even when none of it decodes.
+    private val resultsPerLevel = LongArray(Level.entries.size)
+    private val recordTypes = java.util.TreeMap<Int, Long>()
+    private val pairingKinds = LinkedHashMap<String, PairingSample>()
+
+    private class PairingSample(var count: Long, var bestRssi: Int, var hex: String)
+
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
 
@@ -79,8 +86,10 @@ class PodsScanner(
 
     private fun handle(result: ScanResult) {
         results++
+        resultsPerLevel[level.ordinal]++
         val data = result.scanRecord?.getManufacturerSpecificData(ProximityParser.APPLE_COMPANY_ID) ?: return
         appleResults++
+        record(data, result.rssi)
         val status = ProximityParser.parse(data) ?: return
         statusFrames++
         strongestRssi = maxOf(strongestRssi ?: result.rssi, result.rssi)
@@ -89,6 +98,52 @@ class PodsScanner(
         lastFrameAtMs = SystemClock.elapsedRealtime()
         onProblem(null)
         onStatus(status, result.rssi)
+    }
+
+    /** Tallies the records inside one Apple broadcast, keeping a sample of each pairing-type shape. */
+    private fun record(data: ByteArray, rssi: Int) {
+        var pos = 0
+        while (pos + 2 <= data.size) {
+            val type = data[pos].toInt() and 0xFF
+            val length = data[pos + 1].toInt() and 0xFF
+            recordTypes.merge(type, 1L, Long::plus)
+            if (type == ProximityParser.TYPE_PROXIMITY_PAIRING) {
+                fun byteAt(i: Int) = data.getOrNull(pos + 2 + i)?.let { "%02X".format(it) } ?: "--"
+                val kind = "長度 $length・開頭 ${byteAt(0)}・型號 ${byteAt(1)}${byteAt(2)}"
+                val sample = pairingKinds[kind]
+                if (sample == null) {
+                    if (pairingKinds.size < MAX_PAIRING_KINDS) {
+                        pairingKinds[kind] = PairingSample(1, rssi, hex(data))
+                    }
+                } else {
+                    sample.count++
+                    if (rssi > sample.bestRssi) {
+                        sample.bestRssi = rssi
+                        sample.hex = hex(data)
+                    }
+                }
+            }
+            pos += 2 + length
+        }
+    }
+
+    private fun hex(data: ByteArray) = data.joinToString(" ") { "%02X".format(it) }
+
+    /** Multi-line detail for the diagnostics report. */
+    fun detail(): String = buildString {
+        append("各掃描方式收到的廣播：")
+        append(Level.entries.joinToString("・") { "${it.name} ${resultsPerLevel[it.ordinal]}" })
+        append("\nApple 廣播類型：")
+        append(
+            if (recordTypes.isEmpty()) "無"
+            else recordTypes.entries.joinToString("・") { "%02X×%d".format(it.key, it.value) }
+        )
+        append("\n配對類（07）廣播：")
+        if (pairingKinds.isEmpty()) append("無")
+        for ((kind, sample) in pairingKinds) {
+            append("\n  ").append(kind).append("・").append(sample.count).append(" 筆・最強 ")
+                .append(sample.bestRssi).append(" dBm\n  ").append(sample.hex)
+        }
     }
 
     /**
@@ -178,5 +233,6 @@ class PodsScanner(
 
     private companion object {
         const val TAG = "PodsScanner"
+        const val MAX_PAIRING_KINDS = 12
     }
 }

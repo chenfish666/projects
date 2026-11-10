@@ -385,6 +385,7 @@ class PodsService : Service() {
             strongestRssi = scanner.strongestRssi,
             lastFrameHex = scanner.lastFrameHex,
             lastFrameAgeSeconds = scanner.lastFrameAtMs.takeIf { it > 0 }?.let { (now - it) / 1000 },
+            detail = scanner.detail(),
         )
     }
 

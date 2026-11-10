@@ -148,7 +148,8 @@ class MainActivity : AppCompatActivity() {
             )
             appendLine("定位服務：${if (location) "開" else "關"}・相容掃描模式：${if (prefs.scanCompat) "開" else "關"}")
             appendLine("服務：${if (AppState.serviceRunning.value) "執行中" else "未執行"}・${AppState.scanProblem.value ?: "掃描無錯誤"}")
-            append(AppState.scan.value.describe())
+            appendLine(AppState.scan.value.describe())
+            append(AppState.scan.value.detail)
         }
     }
 
