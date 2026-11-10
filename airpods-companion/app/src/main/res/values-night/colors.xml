@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="popup_surface">#FF25242B</color>
+    <color name="popup_text">#FFE8E6EE</color>
+    <color name="popup_text_secondary">#FFA9A7B3</color>
+    <color name="popup_track">#FF3A3942</color>
+    <color name="battery_ok">#FF5FCB8A</color>
+    <color name="battery_low">#FFFF7B72</color>
+</resources>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PodsPanel</string>
+
+    <string name="cell_left">左耳</string>
+    <string name="cell_right">右耳</string>
+    <string name="cell_case">充電盒</string>
+    <string name="cell_headset">耳機</string>
+
+    <string name="status_empty_title">尚未偵測到 AirPods</string>
+    <string name="status_empty_hint">打開充電盒蓋，或戴上耳機並靠近手機。</string>
+
+    <string name="setup_title">完成設定</string>
+    <string name="setup_grant">允許</string>
+    <string name="setup_open">前往設定</string>
+
+    <string name="popup_title">彈窗與配戴</string>
+    <string name="popup_on_connect">耳機連線時顯示彈窗</string>
+    <string name="popup_on_lid">打開充電盒蓋時顯示彈窗</string>
+    <string name="ear_pause">取下耳機自動暫停</string>
+    <string name="ear_pause_hint">取下任一耳會暫停播放，兩分鐘內戴回去會繼續。</string>
+    <string name="popup_test">預覽彈窗</string>
+    <string name="popup_close">關閉</string>
+
+    <string name="eq_title">等化器</string>
+    <string name="eq_enable">啟用等化器</string>
+    <string name="eq_only_headphones">只在藍牙耳機連線時套用</string>
+    <string name="eq_per_session">逐一套用模式</string>
+    <string name="eq_per_session_hint">全域模式沒有效果時再開啟。只對會回報播放狀態的音樂 App 有效（Spotify、YouTube Music、Apple Music 等），開啟後請重新啟動音樂 App。</string>
+    <string name="eq_reset">重設</string>
+
+    <string name="alarm_title">鬧鐘在耳機響</string>
+    <string name="alarm_off">關閉</string>
+    <string name="alarm_mirror">耳機也響</string>
+    <string name="alarm_only">盡量只在耳機</string>
+    <string name="alarm_volume">耳機鬧鐘音量</string>
+    <string name="alarm_pick_tone">選擇鈴聲</string>
+    <string name="alarm_test">在耳機試聽</string>
+
+    <string name="advanced_title">進階</string>
+    <string name="scan_compat">相容掃描模式</string>
+    <string name="scan_compat_hint">一直偵測不到耳機時再開啟。開啟後只有螢幕亮著時才會更新電量。</string>
+    <string name="about">電量來自 AirPods 的藍牙廣播，以 10% 為單位。主動降噪切換等功能需要 Apple 的專屬通道，這個版本沒有提供。</string>
+</resources>
