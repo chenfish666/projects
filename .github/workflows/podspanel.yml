@@ -1,0 +1,30 @@
+name: PodsPanel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "airpods-companion/**"
+      - ".github/workflows/podspanel.yml"
+  pull_request:
+    paths:
+      - "airpods-companion/**"
+      - ".github/workflows/podspanel.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: airpods-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test
+        run: ./gradlew testDebugUnitTest
+      - name: Build
+        run: ./gradlew assembleDebug
