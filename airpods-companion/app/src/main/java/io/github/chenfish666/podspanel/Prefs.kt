@@ -85,10 +85,18 @@ class Prefs(context: Context) {
         get() = store.getString(KEY_SCAN_RECIPE, null)
         set(v) = store.edit().putString(KEY_SCAN_RECIPE, v).apply()
 
-    /** Model code from the last decoded status broadcast, or -1. Names the pair when only the direct connection has data. */
-    var lastModelCode: Int
+    /** Model code of the user's own AirPods as learnt by [io.github.chenfish666.podspanel.core.OwnPairFilter], or -1. */
+    var ownModelCode: Int
         get() = store.getInt(KEY_LAST_MODEL, -1)
         set(v) = store.edit().putInt(KEY_LAST_MODEL, v).apply()
+
+    /**
+     * System build on which the direct connection to the AirPods could not be opened. While the
+     * phone still runs that build there is no point in trying again at every connect.
+     */
+    var directFailedOnBuild: String?
+        get() = store.getString(KEY_DIRECT_FAILED_BUILD, null)
+        set(v) = store.edit().putString(KEY_DIRECT_FAILED_BUILD, v).apply()
 
     /** The last known levels, so the app has something to show before fresh data arrives. */
     var lastStatus: String?
@@ -111,12 +119,13 @@ class Prefs(context: Context) {
         const val KEY_SAVED_ALARM_VOLUME = "saved_alarm_volume"
         const val KEY_SAVED_MUSIC_VOLUME = "saved_music_volume"
         const val KEY_SCAN_RECIPE = "scan_recipe"
-        const val KEY_LAST_MODEL = "last_model"
+        const val KEY_LAST_MODEL = "own_model"
         const val KEY_LAST_STATUS = "last_status"
+        const val KEY_DIRECT_FAILED_BUILD = "direct_failed_build"
 
         /** Keys the service writes itself; a change to them is not a change of settings. */
         val INTERNAL_KEYS = setOf(
-            KEY_SAVED_ALARM_VOLUME, KEY_SAVED_MUSIC_VOLUME, KEY_SCAN_RECIPE, KEY_LAST_MODEL, KEY_LAST_STATUS,
+            KEY_SAVED_ALARM_VOLUME, KEY_SAVED_MUSIC_VOLUME, KEY_SCAN_RECIPE, KEY_LAST_MODEL, KEY_LAST_STATUS, KEY_DIRECT_FAILED_BUILD,
         )
     }
 }

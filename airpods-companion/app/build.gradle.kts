@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.chenfish666.podspanel"
         minSdk = 28
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.1.2"
+        versionCode = 7
+        versionName = "1.2.0"
     }
 
     // The release key is never stored in the repository. A release build is signed only when the

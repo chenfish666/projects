@@ -23,7 +23,8 @@ import io.github.d4viddf.hyperisland_kit.models.TextInfo
  * Shows the battery levels in the island of Xiaomi HyperOS 3, the pill around the front camera.
  *
  * HyperOS builds the island from extra data attached to an ordinary notification, so this class
- * only decorates the status notification the service already posts. The system decides whether
+ * only decorates the status notification the service already posts, and asks for it to be shown
+ * in the island alone, without an entry in the notification shade. The system decides whether
  * an app may use the island; where it says no, the notification stays an ordinary one.
  */
 object Island {
@@ -90,7 +91,7 @@ object Island {
             .setBaseInfo(title = title, content = BatteryViews.summary(status), pictureKey = PIC_POD)
             .setEnableFloat(false)
             .setIslandFirstFloat(expand)
-            .setShowNotification(true)
+            .setShowNotification(false)
 
         val lowest = status.lowestPod
         if (lowest != null) {

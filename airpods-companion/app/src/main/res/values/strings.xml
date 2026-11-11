@@ -47,5 +47,5 @@
     <string name="advanced_title">進階</string>
     <string name="diagnostics_title">診斷資訊</string>
     <string name="diagnostics_copy">複製診斷資訊</string>
-    <string name="about">App 會先嘗試直接連線到 AirPods（精確電量、配戴狀態、降噪切換）；手機的藍牙系統不支援時，改用 AirPods 的藍牙廣播，電量以 10% 為單位。</string>
+    <string name="about">App 會先嘗試直接連線到 AirPods（精確電量、降噪切換）；手機的藍牙系統連不上時，改用 AirPods 的藍牙廣播，這時電量以 10% 為單位，也沒有降噪切換。背景服務只在藍牙耳機連線時執行。</string>
 </resources>

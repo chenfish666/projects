@@ -38,6 +38,8 @@ object AppState {
         /** Status broadcasts taken as coming from the user's own pair. */
         val accepted: Long = 0,
         val tooWeak: Long = 0,
+        /** Status broadcasts dropped because they are of another model than the user's own pair. */
+        val otherPairs: Long = 0,
         val strongestRssi: Int? = null,
         val lastFrameHex: String? = null,
         val lastFrameAgeSeconds: Long? = null,
@@ -51,7 +53,7 @@ object AppState {
             append("\n收到廣播 ").append(results)
             append("・Apple 裝置 ").append(appleResults)
             append("・耳機狀態 ").append(statusFrames)
-            append("\n採用 ").append(accepted).append("・訊號太弱略過 ").append(tooWeak)
+            append("\n採用 ").append(accepted).append("・訊號太弱略過 ").append(tooWeak).append("・別人的耳機 ").append(otherPairs)
             append("・最強訊號 ").append(strongestRssi?.let { "$it dBm" } ?: "—")
             append("\n最近一筆：")
             append(lastFrameHex?.let { "$it（$lastFrameAgeSeconds 秒前）" } ?: "尚未收到")
