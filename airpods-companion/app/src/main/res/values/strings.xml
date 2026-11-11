@@ -14,7 +14,14 @@
     <string name="setup_grant">允許</string>
     <string name="setup_open">前往設定</string>
 
+    <string name="mode_off">關閉</string>
+    <string name="mode_noise">降噪</string>
+    <string name="mode_transparency">通透</string>
+    <string name="mode_adaptive">自適應</string>
+
     <string name="popup_title">彈窗與配戴</string>
+    <string name="island">在超級島顯示電量</string>
+    <string name="island_settings">開啟通知設定</string>
     <string name="popup_on_connect">耳機連線時顯示彈窗</string>
     <string name="popup_on_lid">打開充電盒蓋時顯示彈窗</string>
     <string name="ear_pause">取下耳機自動暫停</string>
@@ -42,5 +49,5 @@
     <string name="diagnostics_title">診斷資訊</string>
     <string name="diagnostics_copy">複製診斷資訊</string>
     <string name="scan_compat_hint">App 會自動找出這支手機收得到耳機廣播的掃描方式；一直偵測不到耳機時可以手動開啟。開啟後只有螢幕亮著時才會更新電量。</string>
-    <string name="about">電量來自 AirPods 的藍牙廣播，以 10% 為單位。主動降噪切換等功能需要 Apple 的專屬通道，這個版本沒有提供。</string>
+    <string name="about">App 會先嘗試直接連線到 AirPods（精確電量、配戴狀態、降噪切換）；手機的藍牙系統不支援時，改用 AirPods 的藍牙廣播，電量以 10% 為單位。</string>
 </resources>

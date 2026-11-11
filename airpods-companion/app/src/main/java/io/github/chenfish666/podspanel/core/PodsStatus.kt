@@ -44,4 +44,30 @@ data class PodsStatus(
 
     /** Lowest earbud level, for the "battery low" tint. */
     val lowestPod: Int? get() = listOfNotNull(left, right.takeIf { model.dual }).minOrNull()
+
+    /** The lasting part of the status (model, levels, charging) as text, to store between runs. */
+    fun encodeLevels(): String =
+        listOf(modelCode, left, right, case, leftCharging, rightCharging, caseCharging).joinToString(",") { it?.toString() ?: "" }
+
+    companion object {
+        /** Reverse of [encodeLevels]; null when the text is not a stored status. */
+        fun decodeLevels(text: String?): PodsStatus? {
+            val parts = text?.split(',') ?: return null
+            if (parts.size != 7) return null
+            return PodsStatus(
+                modelCode = parts[0].toIntOrNull() ?: return null,
+                left = parts[1].toIntOrNull(),
+                right = parts[2].toIntOrNull(),
+                case = parts[3].toIntOrNull(),
+                leftCharging = parts[4] == "true",
+                rightCharging = parts[5] == "true",
+                caseCharging = parts[6] == "true",
+                leftInEar = false,
+                rightInEar = false,
+                lid = LidState.UNKNOWN,
+                connection = ConnectionState.UNKNOWN,
+                colorCode = 0,
+            )
+        }
+    }
 }

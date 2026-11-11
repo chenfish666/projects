@@ -19,6 +19,11 @@ class Prefs(context: Context) {
         get() = store.getBoolean(KEY_POPUP_LID, true)
         set(v) = store.edit().putBoolean(KEY_POPUP_LID, v).apply()
 
+    /** Show the levels in the HyperOS island where the system offers one. */
+    var islandEnabled: Boolean
+        get() = store.getBoolean(KEY_ISLAND, true)
+        set(v) = store.edit().putBoolean(KEY_ISLAND, v).apply()
+
     var earAutoPause: Boolean
         get() = store.getBoolean(KEY_EAR_PAUSE, false)
         set(v) = store.edit().putBoolean(KEY_EAR_PAUSE, v).apply()
@@ -80,6 +85,16 @@ class Prefs(context: Context) {
         get() = store.getInt(KEY_SCAN_LEVEL, 0)
         set(v) = store.edit().putInt(KEY_SCAN_LEVEL, v).apply()
 
+    /** Model code from the last decoded status broadcast, or -1. Names the pair when only the direct connection has data. */
+    var lastModelCode: Int
+        get() = store.getInt(KEY_LAST_MODEL, -1)
+        set(v) = store.edit().putInt(KEY_LAST_MODEL, v).apply()
+
+    /** The last known levels, so the app has something to show before fresh data arrives. */
+    var lastStatus: String?
+        get() = store.getString(KEY_LAST_STATUS, null)
+        set(v) = store.edit().putString(KEY_LAST_STATUS, v).apply()
+
     /** Scan without a hardware filter. Slower on battery, but some firmware drops filtered results. */
     var scanCompat: Boolean
         get() = store.getBoolean(KEY_SCAN_COMPAT, false)
@@ -89,6 +104,7 @@ class Prefs(context: Context) {
         const val KEY_POPUP_CONNECT = "popup_connect"
         const val KEY_POPUP_LID = "popup_lid"
         const val KEY_EAR_PAUSE = "ear_pause"
+        const val KEY_ISLAND = "island"
         const val KEY_EQ_ENABLED = "eq_enabled"
         const val KEY_EQ_GAINS = "eq_gains"
         const val KEY_EQ_PRESET = "eq_preset"
@@ -101,5 +117,12 @@ class Prefs(context: Context) {
         const val KEY_SAVED_MUSIC_VOLUME = "saved_music_volume"
         const val KEY_SCAN_COMPAT = "scan_compat"
         const val KEY_SCAN_LEVEL = "scan_level"
+        const val KEY_LAST_MODEL = "last_model"
+        const val KEY_LAST_STATUS = "last_status"
+
+        /** Keys the service writes itself; a change to them is not a change of settings. */
+        val INTERNAL_KEYS = setOf(
+            KEY_SAVED_ALARM_VOLUME, KEY_SAVED_MUSIC_VOLUME, KEY_SCAN_LEVEL, KEY_LAST_MODEL, KEY_LAST_STATUS,
+        )
     }
 }

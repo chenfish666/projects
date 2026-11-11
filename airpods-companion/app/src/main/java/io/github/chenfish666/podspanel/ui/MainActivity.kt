@@ -33,11 +33,14 @@ import io.github.chenfish666.podspanel.AppState
 import io.github.chenfish666.podspanel.Permissions
 import io.github.chenfish666.podspanel.Prefs
 import io.github.chenfish666.podspanel.R
+import io.github.chenfish666.podspanel.core.AapProtocol
 import io.github.chenfish666.podspanel.core.AlarmMode
 import io.github.chenfish666.podspanel.core.ConnectionState
 import io.github.chenfish666.podspanel.core.EqMath
+import io.github.chenfish666.podspanel.core.PodModel
 import io.github.chenfish666.podspanel.core.PodsTracker
 import io.github.chenfish666.podspanel.databinding.ActivityMainBinding
+import io.github.chenfish666.podspanel.service.Island
 import io.github.chenfish666.podspanel.service.PodsService
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -91,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         setUpPopupCard()
+        setUpListeningMode()
         setUpEqualizerCard()
         setUpAlarmCard()
         binding.scanCompat.isChecked = prefs.scanCompat
@@ -108,6 +112,7 @@ class MainActivity : AppCompatActivity() {
                         .collect { (pods, headphones, problem) -> showStatus(pods, headphones, problem) }
                 }
                 launch { AppState.eq.collect(::showEqState) }
+                launch { AppState.listeningMode.collect(::showListeningMode) }
                 launch { AppState.scan.collect { binding.diagnostics.text = it.describe() } }
             }
         }
@@ -123,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         // Permissions are granted on other screens, so re-check every time this one comes back.
         refreshSetup()
+        refreshIsland()
         showNextAlarm()
     }
 
@@ -147,6 +153,7 @@ class MainActivity : AppCompatActivity() {
                     "・不限制背景 ${yesNo(Permissions.ignoresBatteryOptimizations(this@MainActivity))}"
             )
             appendLine("定位服務：${if (location) "開" else "關"}・相容掃描模式：${if (prefs.scanCompat) "開" else "關"}")
+            appendLine("超級島：${Island.availability(this@MainActivity).label}")
             appendLine("服務：${if (AppState.serviceRunning.value) "執行中" else "未執行"}・${AppState.scanProblem.value ?: "掃描無錯誤"}")
             appendLine(AppState.scan.value.describe())
             append(AppState.scan.value.detail)
@@ -173,7 +180,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val status = tracked.status
-        binding.statusTitle.text = status.model.label
+        // The direct connection does not say which model it is; the paired name does well enough.
+        binding.statusTitle.text =
+            if (status.model == PodModel.UNKNOWN) headphones ?: status.model.label else status.model.label
         binding.statusSubtitle.text = listOfNotNull(
             headphones?.let { "已連線到這支手機" },
             status.connection.label.takeIf {
@@ -184,6 +193,50 @@ class MainActivity : AppCompatActivity() {
         binding.statusCells.visibility = View.VISIBLE
         binding.statusCells.alpha = if (tracked.live) 1f else 0.6f
         BatteryViews.bind(binding.statusCells, status)
+    }
+
+    // ---- Noise control ----
+
+    private val modeButtons = mapOf(
+        R.id.modeOff to AapProtocol.ListeningMode.OFF,
+        R.id.modeNoise to AapProtocol.ListeningMode.NOISE_CANCELLATION,
+        R.id.modeTransparency to AapProtocol.ListeningMode.TRANSPARENCY,
+        R.id.modeAdaptive to AapProtocol.ListeningMode.ADAPTIVE,
+    )
+
+    private fun setUpListeningMode() {
+        binding.listeningMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked || syncing) return@addOnButtonCheckedListener
+            modeButtons[checkedId]?.let { PodsService.setListeningMode(this, it) }
+        }
+    }
+
+    /** The row only exists while the AirPods report a mode, i.e. for models with noise control. */
+    private fun showListeningMode(mode: AapProtocol.ListeningMode?) {
+        binding.listeningMode.visibility = if (mode == null) View.GONE else View.VISIBLE
+        val id = modeButtons.entries.firstOrNull { it.value == mode }?.key ?: return
+        syncing = true
+        binding.listeningMode.check(id)
+        syncing = false
+    }
+
+    // ---- Island ----
+
+    private fun refreshIsland() {
+        Island.refresh()
+        val availability = Island.availability(this)
+        val relevant = availability != Island.Availability.NOT_XIAOMI && availability != Island.Availability.NO_ISLAND
+        binding.island.visibility = if (relevant) View.VISIBLE else View.GONE
+        binding.islandHint.visibility = if (relevant) View.VISIBLE else View.GONE
+        binding.islandSettings.visibility =
+            if (availability == Island.Availability.NOT_ALLOWED) View.VISIBLE else View.GONE
+        binding.islandHint.text = when (availability) {
+            Island.Availability.AVAILABLE -> "耳機連線時，電量會顯示在螢幕上方的超級島；左右兩側分別是左耳和右耳。"
+            Island.Availability.NOT_ALLOWED ->
+                "系統尚未允許這個 App 使用超級島。請到這個 App 的通知設定裡開啟「焦點通知」（或「在狀態列顯示」）。" +
+                    "如果設定裡沒有這個選項，代表這個系統版本只開放給小米核准的 App，電量會維持顯示在通知列。"
+            else -> ""
+        }
     }
 
     // ---- Setup ----
@@ -266,6 +319,14 @@ class MainActivity : AppCompatActivity() {
     // ---- Popup ----
 
     private fun setUpPopupCard() {
+        binding.island.isChecked = prefs.islandEnabled
+        binding.island.setOnCheckedChangeListener { _, checked -> prefs.islandEnabled = checked }
+        binding.islandSettings.setOnClickListener {
+            open(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri()),
+            )
+        }
         binding.popupConnect.isChecked = prefs.popupOnConnect
         binding.popupLid.isChecked = prefs.popupOnLidOpen
         binding.earPause.isChecked = prefs.earAutoPause

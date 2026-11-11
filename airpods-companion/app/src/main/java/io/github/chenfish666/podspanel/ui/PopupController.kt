@@ -36,9 +36,10 @@ class PopupController(context: Context) {
     fun allowed(): Boolean = Settings.canDrawOverlays(themed)
 
     /** Shows the card, or refreshes it and restarts its timer when it is already up. */
-    fun show(status: PodsStatus, subtitle: String? = null): Boolean {
+    fun show(status: PodsStatus, title: String, subtitle: String? = null): Boolean {
         if (!allowed()) return false
         val view = root ?: create() ?: return false
+        view.findViewById<TextView>(R.id.popupTitle).text = title
         bind(view, status, subtitle)
         handler.removeCallbacks(dismissLater)
         handler.postDelayed(dismissLater, VISIBLE_MS)
@@ -98,7 +99,6 @@ class PopupController(context: Context) {
     }
 
     private fun bind(view: View, status: PodsStatus, subtitle: String?) {
-        view.findViewById<TextView>(R.id.popupTitle).text = status.model.label
         val line = subtitle ?: status.connection.label.takeIf { status.connection != ConnectionState.UNKNOWN }
         view.findViewById<TextView>(R.id.popupSubtitle).apply {
             if (line.isNullOrEmpty()) {

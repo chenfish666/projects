@@ -5,7 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -31,9 +34,12 @@ import io.github.chenfish666.podspanel.AppState
 import io.github.chenfish666.podspanel.Permissions
 import io.github.chenfish666.podspanel.Prefs
 import io.github.chenfish666.podspanel.R
+import io.github.chenfish666.podspanel.core.AapProtocol
+import io.github.chenfish666.podspanel.core.AapState
 import io.github.chenfish666.podspanel.core.ConnectionState
 import io.github.chenfish666.podspanel.core.EarAutoPause
 import io.github.chenfish666.podspanel.core.LidState
+import io.github.chenfish666.podspanel.core.PodModel
 import io.github.chenfish666.podspanel.core.PodsStatus
 import io.github.chenfish666.podspanel.core.PodsTracker
 import io.github.chenfish666.podspanel.ui.BatteryViews
@@ -63,7 +69,6 @@ class PodsService : Service() {
     private var connectPopupUntil = 0L
     private var fastScanUntil = 0L
     private var lastPopupAt = -POPUP_GAP_MS
-    private var lastNotificationText: String? = null
     private var mediaForeground = false
     private var started = false
 
@@ -73,13 +78,24 @@ class PodsService : Service() {
     private var probeExhausted = false
     private var compatApplied = false
     private var accepted = 0L
+
+    // The direct connection to the AirPods, when the phone manages to open one.
+    private var aapLink: AapLink? = null
+    private val aapState = AapState()
+    private var aapConnected = false
+    private var aapDetail = ""
+    private var isPods = false
+
+    /** Levels from the previous run, shown until fresh ones arrive. */
+    private var restored: PodsTracker.Tracked? = null
+    private var savedLevels: String? = null
+
+    /** The content of the status notification as last posted. */
+    private var postedContent: StatusContent? = null
     private var tooWeak = 0L
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        when (key) {
-            Prefs.KEY_SAVED_ALARM_VOLUME, Prefs.KEY_SAVED_MUSIC_VOLUME -> Unit
-            else -> applySettings()
-        }
+        if (key !in Prefs.INTERNAL_KEYS) applySettings()
     }
 
     private val deviceCallback = object : AudioDeviceCallback() {
@@ -143,6 +159,12 @@ class PodsService : Service() {
                 fastScanUntil = SystemClock.elapsedRealtime() + FAST_SCAN_MS
                 probeExhausted = false
                 updateScan()
+                // Opening the app is a good moment for another go at the direct connection.
+                if (aapLink?.gaveUp == true) closeAap()
+                syncAap()
+            }
+            ACTION_SET_MODE -> AapProtocol.ListeningMode.fromWire(intent.getIntExtra(EXTRA_MODE, -1))?.let {
+                aapLink?.send(AapProtocol.setListeningMode(it))
             }
         }
         return START_STICKY
@@ -150,6 +172,8 @@ class PodsService : Service() {
 
     private fun begin() {
         AppState.serviceRunning.value = true
+        savedLevels = prefs.lastStatus
+        restored = PodsStatus.decodeLevels(savedLevels)?.let { PodsTracker.Tracked(it, rssi = 0, seenAtMs = 0, live = false) }
         refreshHeadphones(initial = true)
         audio.registerAudioDeviceCallback(deviceCallback, handler)
         ContextCompat.registerReceiver(
@@ -173,6 +197,7 @@ class PodsService : Service() {
             unregisterReceiver(bluetoothReceiver)
             alarm.stop()
         }
+        closeAap()
         scanner.stop()
         equalizer.release()
         popup.dismiss()
@@ -193,7 +218,8 @@ class PodsService : Service() {
             return
         }
         accepted++
-        val after = tracker.snapshot(now) ?: return
+        if (status.modelCode != prefs.lastModelCode && status.model != PodModel.UNKNOWN) prefs.lastModelCode = status.modelCode
+        val after = current(now) ?: return
         publish(after)
         popup.update(after.status)
 
@@ -207,33 +233,152 @@ class PodsService : Service() {
             prefs.popupOnLidOpen && lidJustOpened && rssi >= LID_POPUP_MIN_RSSI -> showPopup(after.status)
         }
 
-        if (prefs.earAutoPause && headphones != null && status.model.dual) {
+        // The direct connection reports in-ear changes reliably; broadcasts are the fallback.
+        if (prefs.earAutoPause && headphones != null && status.model.dual && aapState.wornCount == null) {
             val worn = (if (status.leftInEar) 1 else 0) + (if (status.rightInEar) 1 else 0)
-            when (earAutoPause.onReading(worn, audio.isMusicActive, now)) {
-                EarAutoPause.Action.PAUSE -> mediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE)
-                EarAutoPause.Action.PLAY -> mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
-                EarAutoPause.Action.NONE -> Unit
-            }
+            autoPause(worn, now)
         }
 
         if (AppState.alarmRinging.value) alarm.evaluate()
     }
 
-    private fun publish(tracked: PodsTracker.Tracked? = tracker.snapshot(SystemClock.elapsedRealtime())) {
+    private fun autoPause(worn: Int, now: Long) {
+        when (earAutoPause.onReading(worn, audio.isMusicActive, now)) {
+            EarAutoPause.Action.PAUSE -> mediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE)
+            EarAutoPause.Action.PLAY -> mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+            EarAutoPause.Action.NONE -> Unit
+        }
+    }
+
+    /**
+     * The best current picture: exact data from the direct connection when it is up, otherwise
+     * the status broadcasts, otherwise the levels remembered from the previous run.
+     */
+    private fun current(now: Long): PodsTracker.Tracked? {
+        val broadcast = tracker.snapshot(now)
+        if (aapConnected) {
+            val direct = aapState.toStatus(
+                modelCode = broadcast?.status?.modelCode ?: prefs.lastModelCode,
+                lid = broadcast?.takeIf { it.live }?.status?.lid ?: LidState.UNKNOWN,
+            )
+            if (direct != null) return PodsTracker.Tracked(direct, broadcast?.rssi ?: 0, now, live = true)
+        }
+        return broadcast ?: restored
+    }
+
+    private fun publish(tracked: PodsTracker.Tracked? = current(SystemClock.elapsedRealtime())) {
         AppState.pods.value = tracked
         updateNotification(tracked)
+        if (tracked != null && tracked.live) {
+            val levels = tracked.status.encodeLevels()
+            if (levels != savedLevels) {
+                savedLevels = levels
+                prefs.lastStatus = levels
+                restored = PodsStatus.decodeLevels(levels)?.let { PodsTracker.Tracked(it, rssi = 0, seenAtMs = 0, live = false) }
+            }
+        }
+    }
+
+    /** What to call the pair: its model when known, otherwise the name it is paired under. */
+    private fun displayName(status: PodsStatus): String =
+        if (status.model == PodModel.UNKNOWN) AppState.headphones.value ?: status.model.label else status.model.label
+
+    // ---- Direct connection ----
+
+    /** Opens the direct connection when AirPods are connected, and closes it when they are not. */
+    private fun syncAap() {
+        val device = if (isPods) headphones?.let(::bluetoothDeviceOf) else null
+        if (device == null) {
+            closeAap()
+            return
+        }
+        if (aapLink != null) return
+        aapLink = AapLink(device, ::onAapEvent, ::onAapState).also { it.open() }
+    }
+
+    private fun closeAap() {
+        aapLink?.close()
+        aapLink = null
+        aapConnected = false
+        aapState.reset()
+        AppState.listeningMode.value = null
+    }
+
+    private fun onAapState(state: AapLink.State, detail: String) {
+        aapDetail = detail
+        val connected = state == AapLink.State.CONNECTED
+        if (connected) AppState.scanProblem.value = null
+        if (aapConnected && !connected) {
+            aapState.reset()
+            AppState.listeningMode.value = null
+        }
+        aapConnected = connected
+        publish()
+        publishScanInfo()
+    }
+
+    private fun onAapEvent(event: AapProtocol.Event) {
+        val now = SystemClock.elapsedRealtime()
+        aapState.apply(event)
+        AppState.listeningMode.value = aapState.mode
+        val tracked = current(now)
+        publish(tracked)
+        if (tracked != null) popup.update(tracked.status)
+
+        when (event) {
+            is AapProtocol.Event.Battery ->
+                if (prefs.popupOnConnect && now < connectPopupUntil && tracked != null && tracked.live) {
+                    connectPopupUntil = 0
+                    showPopup(tracked.status, subtitle = "已連線")
+                }
+            is AapProtocol.Event.Ear -> aapState.wornCount?.let { worn ->
+                if (prefs.earAutoPause) {
+                    // One report is enough here; the confirmation count exists for noisy broadcasts.
+                    autoPause(worn, now)
+                    autoPause(worn, now)
+                }
+            }
+            else -> Unit
+        }
+        if (AppState.alarmRinging.value) alarm.evaluate()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun bluetoothDeviceOf(info: AudioDeviceInfo): BluetoothDevice? = try {
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        val address = info.address
+        when {
+            adapter == null -> null
+            BluetoothAdapter.checkBluetoothAddress(address) -> adapter.getRemoteDevice(address)
+            // Some systems hide the address from apps; fall back to the paired device of that name.
+            else -> adapter.bondedDevices.firstOrNull { it.name == info.productName?.toString() }
+        }
+    } catch (e: SecurityException) {
+        null
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun looksLikePods(info: AudioDeviceInfo): Boolean {
+        val name = info.productName?.toString().orEmpty()
+        if (POD_NAMES.any { name.contains(it, ignoreCase = true) }) return true
+        // Renamed AirPods still announce Apple's own service.
+        return try {
+            bluetoothDeviceOf(info)?.uuids?.any { it.uuid == APPLE_SERVICE } == true
+        } catch (e: SecurityException) {
+            false
+        }
     }
 
     private fun showPopup(status: PodsStatus, subtitle: String? = null, force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
         if (!force && !popup.showing && now - lastPopupAt < POPUP_GAP_MS) return
         lastPopupAt = now
-        if (popup.show(status, subtitle)) return
+        if (popup.show(status, displayName(status), subtitle)) return
 
         // Without permission to draw over other apps, a heads-up notification is the next best thing.
         val notification = NotificationCompat.Builder(this, CHANNEL_POPUP)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(status.model.label)
+            .setContentTitle(displayName(status))
             .setContentText(BatteryViews.summary(status))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -256,6 +401,8 @@ class PodsService : Service() {
         val wasConnected = headphones != null
         headphones = found
         AppState.headphones.value = found?.productName?.toString()?.ifBlank { "藍牙耳機" }
+        isPods = found != null && looksLikePods(found)
+        syncAap()
 
         if (found != null && !wasConnected && !initial) onHeadphonesConnected()
         if (found == null && wasConnected) earAutoPause.reset()
@@ -271,7 +418,7 @@ class PodsService : Service() {
         probeExhausted = false
         updateScan()
         if (!prefs.popupOnConnect) return
-        val live = tracker.snapshot(now)?.takeIf { it.live }
+        val live = current(now)?.takeIf { it.live }
         if (live != null) {
             showPopup(live.status, subtitle = "已連線")
         } else {
@@ -283,6 +430,7 @@ class PodsService : Service() {
     // ---- Settings ----
 
     private fun applySettings() {
+        publish()
         // The compatibility switch overrides whatever level was found automatically.
         if (prefs.scanCompat != compatApplied) {
             compatApplied = prefs.scanCompat
@@ -323,10 +471,7 @@ class PodsService : Service() {
     }
 
     /** True when the connected headphones are ones that send the status broadcasts. */
-    private fun podsConnected(): Boolean {
-        val name = AppState.headphones.value ?: return false
-        return POD_NAMES.any { name.contains(it, ignoreCase = true) }
-    }
+    private fun podsConnected(): Boolean = isPods
 
     /**
      * Works around phones that drop AirPods broadcasts when the Bluetooth chip filters for them.
@@ -358,7 +503,8 @@ class PodsService : Service() {
             probeExhausted = true
             setLevel(baseLevel())
             updateScan()
-            if (podsConnected()) AppState.scanProblem.value = silenceAdvice()
+            // Not a problem worth reporting while the direct connection supplies the data.
+            if (podsConnected() && !aapConnected) AppState.scanProblem.value = silenceAdvice()
         }
     }
 
@@ -386,6 +532,10 @@ class PodsService : Service() {
             lastFrameHex = scanner.lastFrameHex,
             lastFrameAgeSeconds = scanner.lastFrameAtMs.takeIf { it > 0 }?.let { (now - it) / 1000 },
             detail = scanner.detail(),
+            direct = when {
+                aapLink == null -> if (headphones == null) "耳機未連線" else if (isPods) "找不到耳機的藍牙位址" else "不是 AirPods"
+                else -> aapDetail
+            },
         )
     }
 
@@ -405,29 +555,43 @@ class PodsService : Service() {
         )
     }
 
-    private fun statusNotification(tracked: PodsTracker.Tracked?): Notification {
-        val title = tracked?.status?.model?.label ?: getString(R.string.app_name)
+    /** What the status notification says, decided before anything is built. */
+    private data class StatusContent(val title: String, val text: String, val inIsland: Boolean)
+
+    private fun statusContent(tracked: PodsTracker.Tracked?): StatusContent {
+        val title = tracked?.status?.let(::displayName) ?: getString(R.string.app_name)
         val text = when {
             tracked == null -> AppState.scanProblem.value ?: "尚未偵測到 AirPods"
             tracked.live -> BatteryViews.summary(tracked.status)
             else -> BatteryViews.summary(tracked.status) + "（上次讀取）"
         }
-        lastNotificationText = "$title|$text"
-        return NotificationCompat.Builder(this, CHANNEL_STATUS)
+        // The island is for headphones in use; old or missing levels stay in the shade only.
+        val inIsland = tracked != null && tracked.live && headphones != null && prefs.islandEnabled &&
+            Island.availability(this) == Island.Availability.AVAILABLE
+        return StatusContent(title, text, inIsland)
+    }
+
+    private fun statusNotification(tracked: PodsTracker.Tracked?, content: StatusContent): Notification {
+        val builder = NotificationCompat.Builder(this, CHANNEL_STATUS)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(content.title)
+            .setContentText(content.text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setContentIntent(openApp())
-            .build()
+        // The island opens once when it first appears, i.e. when the headphones connect.
+        val expand = content.inIsland && postedContent?.inIsland != true
+        postedContent = content
+        if (content.inIsland && tracked != null) {
+            Island.decorate(this, builder, content.title, tracked.status, expand)?.let { return it }
+        }
+        return builder.build()
     }
 
     private fun updateNotification(tracked: PodsTracker.Tracked?) {
-        val previous = lastNotificationText
-        val notification = statusNotification(tracked)
-        if (lastNotificationText != previous) notify(NOTIFICATION_STATUS, notification)
+        val content = statusContent(tracked)
+        if (content != postedContent) notify(NOTIFICATION_STATUS, statusNotification(tracked, content))
     }
 
     private fun notify(id: Int, notification: Notification) {
@@ -450,7 +614,8 @@ class PodsService : Service() {
      * @return false when the system refused, e.g. because a permission is missing
      */
     private fun enterForeground(): Boolean {
-        val notification = statusNotification(tracker.snapshot(SystemClock.elapsedRealtime()))
+        val tracked = current(SystemClock.elapsedRealtime())
+        val notification = statusNotification(tracked, statusContent(tracked))
         val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         } else {
@@ -489,12 +654,17 @@ class PodsService : Service() {
         private const val ACTION_TEST_POPUP = "io.github.chenfish666.podspanel.TEST_POPUP"
         private const val ACTION_TEST_ALARM = "io.github.chenfish666.podspanel.TEST_ALARM"
         private const val ACTION_FAST_SCAN = "io.github.chenfish666.podspanel.FAST_SCAN"
+        private const val ACTION_SET_MODE = "io.github.chenfish666.podspanel.SET_MODE"
+        private const val EXTRA_MODE = "mode"
+
+        /** Service that every Apple headset announces over classic Bluetooth. */
+        private val APPLE_SERVICE = java.util.UUID.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
 
         private const val TICK_MS = 5_000L
         private const val FAST_SCAN_MS = 30_000L
         private const val CONNECT_POPUP_WINDOW_MS = 20_000L
         private const val POPUP_GAP_MS = 20_000L
-        private const val PROBE_MS = 10_000L
+        private const val PROBE_MS = 6_000L
 
         /** Weakest signal that may start following a pair seen in passing. */
         private const val NEARBY_MIN_RSSI = -72
@@ -543,5 +713,15 @@ class PodsService : Service() {
         fun testPopup(context: Context) = start(context, ACTION_TEST_POPUP)
         fun testAlarm(context: Context) = start(context, ACTION_TEST_ALARM)
         fun fastScan(context: Context) = start(context, ACTION_FAST_SCAN)
+
+        fun setListeningMode(context: Context, mode: AapProtocol.ListeningMode) {
+            if (!Permissions.hasBluetooth(context)) return
+            val intent = Intent(context, PodsService::class.java).setAction(ACTION_SET_MODE).putExtra(EXTRA_MODE, mode.wire)
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Could not reach service: ${e.message}")
+            }
+        }
     }
 }

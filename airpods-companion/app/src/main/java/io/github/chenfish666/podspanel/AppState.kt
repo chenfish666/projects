@@ -1,5 +1,6 @@
 package io.github.chenfish666.podspanel
 
+import io.github.chenfish666.podspanel.core.AapProtocol
 import io.github.chenfish666.podspanel.core.PodsTracker
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -23,6 +24,9 @@ object AppState {
 
     val scan = MutableStateFlow(ScanInfo())
 
+    /** Noise control mode, or null while the direct connection is down or the model has none. */
+    val listeningMode = MutableStateFlow<AapProtocol.ListeningMode?>(null)
+
     /** What the scanner has seen so far; shown in the app so a problem can be told apart. */
     data class ScanInfo(
         val level: String = "",
@@ -39,6 +43,8 @@ object AppState {
         val lastFrameAgeSeconds: Long? = null,
         /** Breakdown of what was received, only for the copied report. */
         val detail: String = "",
+        /** State of the direct connection to the AirPods. */
+        val direct: String = "",
     ) {
         fun describe(): String = buildString {
             append("掃描方式：").append(level.ifEmpty { "未啟動" }).append(if (fast) "・快速" else "・省電")
@@ -49,6 +55,7 @@ object AppState {
             append("・最強訊號 ").append(strongestRssi?.let { "$it dBm" } ?: "—")
             append("\n最近一筆：")
             append(lastFrameHex?.let { "$it（$lastFrameAgeSeconds 秒前）" } ?: "尚未收到")
+            append("\n直接連線：").append(direct.ifEmpty { "未嘗試" })
         }
     }
 

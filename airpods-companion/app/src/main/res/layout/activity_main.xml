@@ -56,6 +56,52 @@
                     <include android:id="@+id/cellCase" layout="@layout/view_battery_cell" />
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/listeningMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/modeOff"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:paddingHorizontal="4dp"
+                        android:text="@string/mode_off" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/modeNoise"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:paddingHorizontal="4dp"
+                        android:text="@string/mode_noise" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/modeTransparency"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:paddingHorizontal="4dp"
+                        android:text="@string/mode_transparency" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/modeAdaptive"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.2"
+                        android:paddingHorizontal="4dp"
+                        android:text="@string/mode_adaptive" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
                 <TextView
                     android:id="@+id/statusProblem"
                     style="@style/Hint"
@@ -100,6 +146,25 @@
                     android:id="@+id/popupLid"
                     style="@style/Switch"
                     android:text="@string/popup_on_lid" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/island"
+                    style="@style/Switch"
+                    android:text="@string/island"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/islandHint"
+                    style="@style/Hint"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/islandSettings"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/island_settings"
+                    android:visibility="gone" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/earPause"
