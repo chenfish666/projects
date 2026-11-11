@@ -1,7 +1,6 @@
 package io.github.chenfish666.podspanel.service
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -93,8 +92,11 @@ class PodsService : Service() {
     private var restored: PodsTracker.Tracked? = null
     private var savedLevels: String? = null
 
-    /** The content of the status notification as last posted. */
+    /** The content of the service's notification as last posted. */
     private var postedContent: StatusContent? = null
+
+    /** What the island shows, or null while it is not up. */
+    private var islandContent: String? = null
     private var tooWeak = 0L
     private var otherPairs = 0L
     private lateinit var ownPair: OwnPairFilter
@@ -102,6 +104,7 @@ class PodsService : Service() {
     /** Since when the service has had nothing to do, or 0 while it is needed. */
     private var idleSinceMs = 0L
     private var connectionStart = false
+    private var destroyed = false
     private var directEverConnected = false
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -137,10 +140,15 @@ class PodsService : Service() {
         prefs = Prefs(this)
         audio = getSystemService(AudioManager::class.java)
         notifications = getSystemService(NotificationManager::class.java)
-        createChannels()
+        Channels.ensure(this)
 
         scanner = PodsScanner(this, ::onStatus) { AppState.scanProblem.value = it }
-        popup = PopupController(this)
+        popup = PopupController(
+            context = this,
+            islandFollows = { islandWanted(current(SystemClock.elapsedRealtime()), ignorePopup = true) },
+            // The island is held back while the card is up, so that the one hands over to the other.
+            onDismissed = { if (started && !destroyed) publish() },
+        )
         equalizer = EqEngine(this)
         alarm = AlarmMirror(
             context = this,
@@ -207,6 +215,7 @@ class PodsService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         handler.removeCallbacksAndMessages(null)
         if (started) {
             prefs.store.unregisterOnSharedPreferenceChangeListener(prefsListener)
@@ -214,6 +223,7 @@ class PodsService : Service() {
             unregisterReceiver(bluetoothReceiver)
             alarm.stop()
         }
+        notifications.cancel(NOTIFICATION_ISLAND)
         closeAap()
         scanner.stop()
         equalizer.release()
@@ -426,10 +436,14 @@ class PodsService : Service() {
         val now = SystemClock.elapsedRealtime()
         if (!force && !popup.showing && now - lastPopupAt < POPUP_GAP_MS) return
         lastPopupAt = now
-        if (popup.show(status, displayName(status), subtitle)) return
+        if (popup.show(status, displayName(status), subtitle)) {
+            // Takes the island down for as long as the card is up.
+            updateIsland(current(now))
+            return
+        }
 
         // Without permission to draw over other apps, a heads-up notification is the next best thing.
-        val notification = NotificationCompat.Builder(this, CHANNEL_POPUP)
+        val notification = NotificationCompat.Builder(this, Channels.POPUP)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(displayName(status))
             .setContentText(BatteryViews.summary(status))
@@ -642,22 +656,8 @@ class PodsService : Service() {
 
     // ---- Notifications ----
 
-    private fun createChannels() {
-        notifications.createNotificationChannel(
-            NotificationChannel(CHANNEL_STATUS, "耳機狀態", NotificationManager.IMPORTANCE_LOW).apply {
-                setShowBadge(false)
-            }
-        )
-        notifications.createNotificationChannel(
-            NotificationChannel(CHANNEL_POPUP, "電量彈窗（未開啟懸浮視窗時）", NotificationManager.IMPORTANCE_HIGH).apply {
-                setShowBadge(false)
-                setSound(null, null)
-            }
-        )
-    }
-
-    /** What the status notification says, decided before anything is built. */
-    private data class StatusContent(val title: String, val text: String, val inIsland: Boolean)
+    /** What the service's own notification says, decided before anything is built. */
+    private data class StatusContent(val title: String, val text: String)
 
     private fun statusContent(tracked: PodsTracker.Tracked?): StatusContent {
         val title = tracked?.status?.let(::displayName) ?: getString(R.string.app_name)
@@ -666,14 +666,12 @@ class PodsService : Service() {
             tracked.live -> BatteryViews.summary(tracked.status)
             else -> BatteryViews.summary(tracked.status) + "（上次讀取）"
         }
-        // The island is for headphones in use; old or missing levels stay in the shade only.
-        val inIsland = tracked != null && tracked.live && headphones != null && prefs.islandEnabled &&
-            Island.availability(this) == Island.Availability.AVAILABLE
-        return StatusContent(title, text, inIsland)
+        return StatusContent(title, text)
     }
 
-    private fun statusNotification(tracked: PodsTracker.Tracked?, content: StatusContent): Notification {
-        val builder = NotificationCompat.Builder(this, CHANNEL_STATUS)
+    private fun statusNotification(content: StatusContent): Notification {
+        postedContent = content
+        return NotificationCompat.Builder(this, Channels.SERVICE)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(content.title)
             .setContentText(content.text)
@@ -681,18 +679,39 @@ class PodsService : Service() {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setContentIntent(openApp())
-        // The island opens once when it first appears, i.e. when the headphones connect.
-        val expand = content.inIsland && postedContent?.inIsland != true
-        postedContent = content
-        if (content.inIsland && tracked != null) {
-            Island.decorate(this, builder, content.title, tracked.status, expand)?.let { return it }
-        }
-        return builder.build()
+            .build()
     }
+
+    /**
+     * Whether the levels belong in the island right now: only for headphones in use, and not
+     * while the popup card is up, which hands over to the island when it closes.
+     */
+    private fun islandWanted(tracked: PodsTracker.Tracked?, ignorePopup: Boolean = false): Boolean =
+        tracked != null && tracked.live && headphones != null && prefs.islandEnabled &&
+            // Also held back while a popup for freshly connected headphones is still to come.
+            (ignorePopup || !popup.showing && SystemClock.elapsedRealtime() >= connectPopupUntil) &&
+            Island.availability(this) == Island.Availability.AVAILABLE
 
     private fun updateNotification(tracked: PodsTracker.Tracked?) {
         val content = statusContent(tracked)
-        if (content != postedContent) notify(NOTIFICATION_STATUS, statusNotification(tracked, content))
+        if (content != postedContent) notify(NOTIFICATION_STATUS, statusNotification(content))
+        updateIsland(tracked)
+    }
+
+    private fun updateIsland(tracked: PodsTracker.Tracked?) {
+        if (!islandWanted(tracked) || tracked == null) {
+            if (islandContent != null) {
+                islandContent = null
+                notifications.cancel(NOTIFICATION_ISLAND)
+            }
+            return
+        }
+        val content = displayName(tracked.status) + "|" + BatteryViews.summary(tracked.status)
+        if (content == islandContent) return
+        val appear = islandContent == null
+        val notification = Island.build(this, displayName(tracked.status), tracked.status, appear) ?: return
+        islandContent = content
+        notify(NOTIFICATION_ISLAND, notification)
     }
 
     private fun notify(id: Int, notification: Notification) {
@@ -715,8 +734,7 @@ class PodsService : Service() {
      * @return false when the system refused, e.g. because a permission is missing
      */
     private fun enterForeground(): Boolean {
-        val tracked = current(SystemClock.elapsedRealtime())
-        val notification = statusNotification(tracked, statusContent(tracked))
+        val notification = statusNotification(statusContent(current(SystemClock.elapsedRealtime())))
         val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         } else {
@@ -747,10 +765,9 @@ class PodsService : Service() {
 
     companion object {
         private const val TAG = "PodsService"
-        private const val CHANNEL_STATUS = "status"
-        private const val CHANNEL_POPUP = "popup"
         private const val NOTIFICATION_STATUS = 1
         private const val NOTIFICATION_POPUP = 2
+        private const val NOTIFICATION_ISLAND = 3
 
         private const val ACTION_TEST_POPUP = "io.github.chenfish666.podspanel.TEST_POPUP"
         private const val ACTION_TEST_ALARM = "io.github.chenfish666.podspanel.TEST_ALARM"

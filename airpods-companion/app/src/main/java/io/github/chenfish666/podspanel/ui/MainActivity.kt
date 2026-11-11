@@ -40,6 +40,7 @@ import io.github.chenfish666.podspanel.core.EqMath
 import io.github.chenfish666.podspanel.core.PodModel
 import io.github.chenfish666.podspanel.core.PodsTracker
 import io.github.chenfish666.podspanel.databinding.ActivityMainBinding
+import io.github.chenfish666.podspanel.service.Channels
 import io.github.chenfish666.podspanel.service.Island
 import io.github.chenfish666.podspanel.service.PodsService
 import kotlinx.coroutines.flow.combine
@@ -229,7 +230,7 @@ class MainActivity : AppCompatActivity() {
         binding.islandSettings.visibility =
             if (availability == Island.Availability.NOT_ALLOWED) View.VISIBLE else View.GONE
         binding.islandHint.text = when (availability) {
-            Island.Availability.AVAILABLE -> "耳機連線時，電量會顯示在螢幕上方的超級島；左右兩側分別是左耳和右耳。"
+            Island.Availability.AVAILABLE -> "耳機連線時先出現彈窗，彈窗收起後電量留在螢幕上方的超級島；左右兩側分別是左耳和右耳。"
             Island.Availability.NOT_ALLOWED ->
                 "系統尚未允許這個 App 使用超級島。請到這個 App 的通知設定裡開啟「焦點通知」（或「在狀態列顯示」）。" +
                     "如果設定裡沒有這個選項，代表這個系統版本只開放給小米核准的 App，電量會維持顯示在通知列。"
@@ -249,7 +250,7 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             if (!Permissions.hasNotifications(this@MainActivity)) {
-                add(SetupStep("通知", "在通知列顯示電量。", R.string.setup_grant) {
+                add(SetupStep("通知", "超級島是由系統用通知來顯示的，沒有這個權限就不會出現。", R.string.setup_grant) {
                     requestPermissions.launch(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS))
                 })
             }
@@ -323,6 +324,14 @@ class MainActivity : AppCompatActivity() {
             open(
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri()),
+            )
+        }
+        binding.serviceNotification.setOnClickListener {
+            open(
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, Channels.SERVICE),
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
             )
         }
         binding.popupConnect.isChecked = prefs.popupOnConnect

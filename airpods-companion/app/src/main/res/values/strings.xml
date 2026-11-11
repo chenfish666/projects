@@ -22,6 +22,8 @@
     <string name="popup_title">彈窗與配戴</string>
     <string name="island">在超級島顯示電量</string>
     <string name="island_settings">開啟通知設定</string>
+    <string name="service_notification_hint">耳機連線期間通知列會有一則「背景執行」通知，這是 Android 對背景服務的要求。想隱藏的話，按下面的按鈕把這個通知類別關掉，超級島與其他功能不受影響。</string>
+    <string name="service_notification_hide">隱藏「背景執行」通知</string>
     <string name="popup_on_connect">耳機連線時顯示彈窗</string>
     <string name="popup_on_lid">打開充電盒蓋時顯示彈窗</string>
     <string name="ear_pause">取下耳機自動暫停</string>

@@ -22,10 +22,10 @@ import io.github.d4viddf.hyperisland_kit.models.TextInfo
 /**
  * Shows the battery levels in the island of Xiaomi HyperOS 3, the pill around the front camera.
  *
- * HyperOS builds the island from extra data attached to an ordinary notification, so this class
- * only decorates the status notification the service already posts, and asks for it to be shown
- * in the island alone, without an entry in the notification shade. The system decides whether
- * an app may use the island; where it says no, the notification stays an ordinary one.
+ * HyperOS builds the island from extra data attached to a notification. That notification is
+ * separate from the one Android requires of the background service: the system insists on
+ * listing a service's own notification in the shade, and dismissing it would take the island
+ * with it. The system decides whether an app may use the island at all.
  */
 object Island {
 
@@ -62,22 +62,17 @@ object Island {
     fun isXiaomi(): Boolean = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
 
     /**
-     * Turns [builder] into a notification that HyperOS presents in the island.
+     * Builds the notification that HyperOS presents in the island, and nowhere else: it asks not
+     * to be listed in the notification shade.
      *
      * The layout follows the ears: the left earbud's level sits left of the camera, the right
      * one's right of it. When another island takes the space, a ring around the earbud icon
      * shows the lower of the two levels.
      *
-     * @param expand let the island open once, used when the headphones have just connected
-     * @return null when the extras could not be built, so the caller posts the plain notification
+     * @param appear let the island open up once, used when it first appears
+     * @return null when the extras could not be built
      */
-    fun decorate(
-        context: Context,
-        builder: NotificationCompat.Builder,
-        title: String,
-        status: PodsStatus,
-        expand: Boolean,
-    ): Notification? = try {
+    fun build(context: Context, title: String, status: PodsStatus, appear: Boolean): Notification? = try {
         fun level(percent: Int?, charging: Boolean) = when {
             percent == null -> "—"
             charging -> "$percent%⚡"
@@ -90,8 +85,13 @@ object Island {
             .addPicture(HyperPicture(PIC_POD, context, R.drawable.ic_notification))
             .setBaseInfo(title = title, content = BatteryViews.summary(status), pictureKey = PIC_POD)
             .setEnableFloat(false)
-            .setIslandFirstFloat(expand)
             .setShowNotification(false)
+            .setIslandFirstFloat(appear)
+            .setIslandConfig(
+                timeout = STAY_SECONDS,
+                dismissible = false,
+                expandedTimeMs = if (appear) APPEAR_MS else 0,
+            )
 
         val lowest = status.lowestPod
         if (lowest != null) {
@@ -116,8 +116,16 @@ object Island {
         }
         island.setBigIslandInfo(left = left, right = right)
 
-        builder.addExtras(island.buildResourceBundle())
-        builder.build().also { it.extras.putString("miui.focus.param", island.buildJsonParam()) }
+        NotificationCompat.Builder(context, Channels.ISLAND)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(BatteryViews.summary(status))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .addExtras(island.buildResourceBundle())
+            .build()
+            .also { it.extras.putString("miui.focus.param", island.buildJsonParam()) }
     } catch (e: Exception) {
         Log.w(TAG, "Could not build island notification", e)
         null
@@ -148,4 +156,10 @@ object Island {
     private const val LOW_PERCENT = 20
     private const val COLOR_OK = "#34C759"
     private const val COLOR_LOW = "#FF453A"
+
+    /** How long the island may stay; a day, refreshed with every update. */
+    private const val STAY_SECONDS = 86_400
+
+    /** How long the island stays opened up when it first appears. */
+    private const val APPEAR_MS = 2_500
 }
