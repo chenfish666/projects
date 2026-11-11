@@ -72,10 +72,12 @@ class PodsService : Service() {
     private var mediaForeground = false
     private var started = false
 
-    // Scan supervision: which filter level is in use, and whether coarser ones were tried.
-    private var activeLevel = PodsScanner.Level.STATUS
-    private var levelSinceMs = 0L
-    private var probeExhausted = false
+    // Scan supervision: which way of scanning is in use, and whether the others are being tried.
+    private var mainRecipe = PodsScanner.Recipe.STATUS
+    private var probing = false
+    private var probeDone = false
+    private var probeBaseline = emptyMap<PodsScanner.Recipe, Long>()
+    private var expectSinceMs = 0L
     private var compatApplied = false
     private var accepted = 0L
 
@@ -112,7 +114,7 @@ class PodsService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             publish()
-            superviseScan()
+            maybeProbe()
             updateScan()
             publishScanInfo()
             handler.postDelayed(this, TICK_MS)
@@ -157,7 +159,7 @@ class PodsService : Service() {
             ACTION_TEST_ALARM -> alarm.test()
             ACTION_FAST_SCAN -> {
                 fastScanUntil = SystemClock.elapsedRealtime() + FAST_SCAN_MS
-                probeExhausted = false
+                expectBroadcasts()
                 updateScan()
                 // Opening the app is a good moment for another go at the direct connection.
                 if (aapLink?.gaveUp == true) closeAap()
@@ -184,7 +186,8 @@ class PodsService : Service() {
         equalizer.startListening()
         alarm.start()
         compatApplied = prefs.scanCompat
-        setLevel(baseLevel())
+        mainRecipe = baseRecipe()
+        expectBroadcasts()
         applySettings()
         handler.post(tick)
     }
@@ -357,6 +360,19 @@ class PodsService : Service() {
         null
     }
 
+    /** Whether the phone knows the headphones as classic-only or also as a low-energy device. */
+    @SuppressLint("MissingPermission")
+    private fun podsDeviceType(): String = try {
+        when (headphones?.let(::bluetoothDeviceOf)?.type) {
+            BluetoothDevice.DEVICE_TYPE_CLASSIC -> "・傳統藍牙裝置"
+            BluetoothDevice.DEVICE_TYPE_DUAL -> "・雙模裝置"
+            BluetoothDevice.DEVICE_TYPE_LE -> "・低功耗裝置"
+            else -> ""
+        }
+    } catch (e: SecurityException) {
+        ""
+    }
+
     @SuppressLint("MissingPermission")
     private fun looksLikePods(info: AudioDeviceInfo): Boolean {
         val name = info.productName?.toString().orEmpty()
@@ -415,7 +431,7 @@ class PodsService : Service() {
     private fun onHeadphonesConnected() {
         val now = SystemClock.elapsedRealtime()
         fastScanUntil = now + FAST_SCAN_MS
-        probeExhausted = false
+        expectBroadcasts()
         updateScan()
         if (!prefs.popupOnConnect) return
         val live = current(now)?.takeIf { it.live }
@@ -434,8 +450,9 @@ class PodsService : Service() {
         // The compatibility switch overrides whatever level was found automatically.
         if (prefs.scanCompat != compatApplied) {
             compatApplied = prefs.scanCompat
-            probeExhausted = false
-            setLevel(baseLevel())
+            endProbe(adopt = false)
+            mainRecipe = baseRecipe()
+            expectBroadcasts()
         }
         updateScan()
         applyEqualizer()
@@ -457,55 +474,75 @@ class PodsService : Service() {
             return
         }
         val fast = uiVisible || SystemClock.elapsedRealtime() < fastScanUntil
-        scanner.start(fast = fast, level = activeLevel)
+        val wanted = LinkedHashMap<PodsScanner.Recipe, Boolean>()
+        wanted[mainRecipe] = fast || probing
+        if (probing) PodsScanner.Recipe.entries.forEach { wanted.putIfAbsent(it, true) }
+        scanner.run(wanted)
     }
 
-    /** The level to scan at when nothing is being probed. */
-    private fun baseLevel(): PodsScanner.Level =
-        if (prefs.scanCompat) PodsScanner.Level.OPEN
-        else PodsScanner.Level.entries[prefs.scanLevel.coerceIn(0, PodsScanner.Level.entries.lastIndex)]
-
-    private fun setLevel(level: PodsScanner.Level) {
-        activeLevel = level
-        levelSinceMs = SystemClock.elapsedRealtime()
+    /** The way of scanning to use when nothing is being tried out. */
+    private fun baseRecipe(): PodsScanner.Recipe = when {
+        prefs.scanCompat -> PodsScanner.Recipe.OPEN
+        else -> PodsScanner.Recipe.entries.firstOrNull { it.name == prefs.scanRecipe } ?: PodsScanner.Recipe.STATUS
     }
 
     /** True when the connected headphones are ones that send the status broadcasts. */
     private fun podsConnected(): Boolean = isPods
 
+    /** Marks a moment from which broadcasts should be arriving, and allows a new round of probing. */
+    private fun expectBroadcasts() {
+        expectSinceMs = SystemClock.elapsedRealtime()
+        probeDone = false
+        handler.removeCallbacks(probeCheck)
+        handler.postDelayed(probeCheck, QUIET_MS + 200)
+    }
+
+    private val probeCheck = Runnable { maybeProbe() }
+    private val probeEnd = Runnable { endProbe(adopt = true) }
+
     /**
-     * Works around phones that drop AirPods broadcasts when the Bluetooth chip filters for them.
+     * Works around phones on which the usual way of scanning delivers no AirPods broadcasts.
      *
-     * While AirPods are connected to this phone they broadcast every few seconds, so silence
-     * means the broadcasts are being lost on the way. Each period of silence steps down to a
-     * coarser filter; the first level that delivers is remembered. Only done with the screen on:
-     * with it off, results are legitimately delayed, and the unfiltered level delivers nothing.
+     * While AirPods are connected to this phone they broadcast every second or so. If nothing
+     * has arrived a few seconds after they should have, every known way of scanning is run side
+     * by side for a short while; whichever delivers is used from then on, and its broadcasts
+     * count at once, so the wait is seconds rather than one attempt after another. Only done
+     * with the screen on, where every way can deliver.
      */
-    private fun superviseScan() {
+    private fun maybeProbe() {
+        if (probing || probeDone || prefs.scanCompat || !podsConnected()) return
+        if (getSystemService(PowerManager::class.java)?.isInteractive != true) return
         val now = SystemClock.elapsedRealtime()
-        val heardAtThisLevel = scanner.lastFrameAtMs > levelSinceMs
-        val silentForMs = now - maxOf(scanner.lastFrameAtMs, levelSinceMs)
+        if (now - maxOf(scanner.lastFrameAtMs, expectSinceMs) < QUIET_MS) return
 
-        if (heardAtThisLevel && silentForMs < PROBE_MS) {
-            if (!prefs.scanCompat && activeLevel.ordinal > prefs.scanLevel) prefs.scanLevel = activeLevel.ordinal
-            return
-        }
-        val expecting = podsConnected() || (uiVisible && !heardAtThisLevel)
-        val screenOn = getSystemService(PowerManager::class.java)?.isInteractive == true
-        if (!expecting || !screenOn || probeExhausted || silentForMs < PROBE_MS) return
+        Log.i(TAG, "No status broadcasts via $mainRecipe, trying every way of scanning")
+        probing = true
+        probeBaseline = scanner.tallies.mapValues { it.value.status }
+        updateScan()
+        handler.postDelayed(probeEnd, PROBE_MS)
+    }
 
-        val coarser = activeLevel.coarser()
-        if (coarser != null && !prefs.scanCompat) {
-            Log.i(TAG, "No status broadcasts at $activeLevel for ${silentForMs}ms, trying $coarser")
-            setLevel(coarser)
-            updateScan()
-        } else {
-            probeExhausted = true
-            setLevel(baseLevel())
-            updateScan()
-            // Not a problem worth reporting while the direct connection supplies the data.
-            if (podsConnected() && !aapConnected) AppState.scanProblem.value = silenceAdvice()
+    private fun endProbe(adopt: Boolean) {
+        handler.removeCallbacks(probeEnd)
+        if (!probing) return
+        probing = false
+        probeDone = true
+        if (adopt) {
+            // Cheapest first: a way that keeps working with the screen off beats one that does not.
+            val winner = PodsScanner.Recipe.entries.firstOrNull {
+                scanner.tallies.getValue(it).status > (probeBaseline[it] ?: 0)
+            }
+            if (winner != null) {
+                Log.i(TAG, "Status broadcasts arrive via $winner")
+                mainRecipe = winner
+                prefs.scanRecipe = winner.name
+            } else if (podsConnected() && !aapConnected) {
+                updateScan()
+                AppState.scanProblem.value = silenceAdvice()
+                return
+            }
         }
+        updateScan()
     }
 
     private fun silenceAdvice(): String {
@@ -521,8 +558,8 @@ class PodsService : Service() {
     private fun publishScanInfo() {
         val now = SystemClock.elapsedRealtime()
         AppState.scan.value = AppState.ScanInfo(
-            level = scanner.level.label,
-            fast = scanner.fast,
+            level = mainRecipe.label + if (probing) "・正在嘗試其他方式" else "",
+            fast = scanner.isFast(mainRecipe),
             results = scanner.results,
             appleResults = scanner.appleResults,
             statusFrames = scanner.statusFrames,
@@ -534,7 +571,7 @@ class PodsService : Service() {
             detail = scanner.detail(),
             direct = when {
                 aapLink == null -> if (headphones == null) "耳機未連線" else if (isPods) "找不到耳機的藍牙位址" else "不是 AirPods"
-                else -> aapDetail
+                else -> aapDetail + podsDeviceType()
             },
         )
     }
@@ -664,7 +701,11 @@ class PodsService : Service() {
         private const val FAST_SCAN_MS = 30_000L
         private const val CONNECT_POPUP_WINDOW_MS = 20_000L
         private const val POPUP_GAP_MS = 20_000L
-        private const val PROBE_MS = 6_000L
+        /** How long broadcasts may stay away before other ways of scanning are tried. */
+        private const val QUIET_MS = 3_000L
+
+        /** How long every way of scanning runs side by side. */
+        private const val PROBE_MS = 10_000L
 
         /** Weakest signal that may start following a pair seen in passing. */
         private const val NEARBY_MIN_RSSI = -72

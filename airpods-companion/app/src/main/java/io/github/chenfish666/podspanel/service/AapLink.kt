@@ -74,18 +74,31 @@ class AapLink(
         }
     }
 
+    private var lastFailure: String? = null
+
     private fun connect() {
         if (closed) return
-        report(State.CONNECTING, "連線中")
+        report(State.CONNECTING, "連線中" + (lastFailure?.let { "（上次：$it）" } ?: ""))
         Thread({ run() }, "AAP-${device.address}").apply { isDaemon = true }.start()
     }
 
     private fun run() {
         var everReceived = false
+        val established = java.util.concurrent.atomic.AtomicBoolean(false)
+        val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         val failure: String = try {
             val created = createSocket()
             socket = created
+            // connect() has no time limit of its own and can sit for minutes on a phone whose
+            // Bluetooth software cannot complete this kind of connection.
+            main.postDelayed({
+                if (!established.get() && socket === created) {
+                    timedOut.set(true)
+                    created.runCatching { close() }
+                }
+            }, CONNECT_TIMEOUT_MS)
             created.connect()
+            established.set(true)
             if (closed) return
 
             val out = created.outputStream
@@ -116,7 +129,11 @@ class AapLink(
             // The cause of a reflective call is the informative part.
             val cause = (e as? java.lang.reflect.InvocationTargetException)?.cause ?: e
             Log.w(TAG, "AAP connection failed", cause)
-            "${cause.javaClass.simpleName}: ${cause.message}"
+            when {
+                timedOut.get() -> "逾時，手機的藍牙系統沒有完成連線"
+                established.get() -> "連線中斷（${cause.message}）"
+                else -> "${cause.javaClass.simpleName}: ${cause.message}"
+            }
         } finally {
             socket?.runCatching { close() }
             socket = null
@@ -128,6 +145,7 @@ class AapLink(
         if (everReceived) attempt = 0
         val delay = RETRY_DELAYS_MS.getOrNull(attempt++)
         gaveUp = delay == null
+        lastFailure = failure
         report(State.FAILED, if (delay == null) failure else "$failure（稍後重試）")
         if (delay != null) main.postDelayed({ connect() }, delay)
     }
@@ -149,6 +167,7 @@ class AapLink(
 
     private companion object {
         const val TAG = "AapLink"
+        const val CONNECT_TIMEOUT_MS = 12_000L
         val RETRY_DELAYS_MS = longArrayOf(3_000, 10_000, 30_000)
     }
 }

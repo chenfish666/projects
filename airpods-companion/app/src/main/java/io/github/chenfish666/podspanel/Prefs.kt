@@ -78,12 +78,12 @@ class Prefs(context: Context) {
         set(v) = store.edit().putInt(KEY_SAVED_MUSIC_VOLUME, v).commit().let { }
 
     /**
-     * The coarsest scan filter this phone turned out to need, as an index into the scanner's
-     * levels. Found automatically: see the scan supervision in the service.
+     * Name of the way of scanning that delivers status broadcasts on this phone, or null while
+     * the default has not been found wanting. Found automatically by the service.
      */
-    var scanLevel: Int
-        get() = store.getInt(KEY_SCAN_LEVEL, 0)
-        set(v) = store.edit().putInt(KEY_SCAN_LEVEL, v).apply()
+    var scanRecipe: String?
+        get() = store.getString(KEY_SCAN_RECIPE, null)
+        set(v) = store.edit().putString(KEY_SCAN_RECIPE, v).apply()
 
     /** Model code from the last decoded status broadcast, or -1. Names the pair when only the direct connection has data. */
     var lastModelCode: Int
@@ -116,13 +116,13 @@ class Prefs(context: Context) {
         const val KEY_SAVED_ALARM_VOLUME = "saved_alarm_volume"
         const val KEY_SAVED_MUSIC_VOLUME = "saved_music_volume"
         const val KEY_SCAN_COMPAT = "scan_compat"
-        const val KEY_SCAN_LEVEL = "scan_level"
+        const val KEY_SCAN_RECIPE = "scan_recipe"
         const val KEY_LAST_MODEL = "last_model"
         const val KEY_LAST_STATUS = "last_status"
 
         /** Keys the service writes itself; a change to them is not a change of settings. */
         val INTERNAL_KEYS = setOf(
-            KEY_SAVED_ALARM_VOLUME, KEY_SAVED_MUSIC_VOLUME, KEY_SCAN_LEVEL, KEY_LAST_MODEL, KEY_LAST_STATUS,
+            KEY_SAVED_ALARM_VOLUME, KEY_SAVED_MUSIC_VOLUME, KEY_SCAN_RECIPE, KEY_LAST_MODEL, KEY_LAST_STATUS,
         )
     }
 }

@@ -50,6 +50,10 @@
             android:foregroundServiceType="connectedDevice|mediaPlayback" />
 
         <receiver
+            android:name=".service.PodsScanner$ResultReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".service.BootReceiver"
             android:exported="true">
             <intent-filter>
