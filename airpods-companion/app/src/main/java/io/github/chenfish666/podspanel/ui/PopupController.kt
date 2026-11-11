@@ -17,7 +17,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.AccelerateInterpolator
+import android.view.animation.PathInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import io.github.chenfish666.podspanel.R
@@ -110,11 +110,12 @@ class PopupController(
                 PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.12f),
             ).apply {
                 duration = FLY_MS
-                interpolator = AccelerateInterpolator(1.4f)
+                // Eases out of rest and into the island, slow enough for the eye to follow.
+                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
             }
             val fade = ObjectAnimator.ofFloat(card, View.ALPHA, 0f).apply {
-                startDelay = FLY_MS / 2
-                duration = FLY_MS / 2
+                startDelay = FLY_MS * 55 / 100
+                duration = FLY_MS * 45 / 100
             }
             AnimatorSet().apply {
                 playTogether(shrink, fade)
@@ -187,6 +188,6 @@ class PopupController(
     private companion object {
         const val TAG = "PopupController"
         const val VISIBLE_MS = 4_000L
-        const val FLY_MS = 380L
+        const val FLY_MS = 750L
     }
 }
