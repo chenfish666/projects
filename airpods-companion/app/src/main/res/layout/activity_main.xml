@@ -345,17 +345,9 @@
 
                 <TextView style="@style/CardTitle" android:text="@string/advanced_title" />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/scanCompat"
-                    style="@style/Switch"
-                    android:text="@string/scan_compat" />
-
-                <TextView style="@style/Hint" android:text="@string/scan_compat_hint" />
-
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
                     android:text="@string/diagnostics_title"
                     android:textAppearance="?attr/textAppearanceBodyLarge" />
 

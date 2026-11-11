@@ -42,7 +42,13 @@ class PodsScanner(
         /** The Bluetooth chip filters for AirPods status and reports each broadcast at once. */
         STATUS("硬體過濾"),
 
-        /** As above, but the chip collects broadcasts and hands them over in batches. */
+        /**
+         * The chip passes whatever the paired headphones send from the address they are paired
+         * under, whatever its content. Only possible while such headphones are connected.
+         */
+        ADDRESS("只收已配對耳機的位址"),
+
+        /** As [STATUS], but the chip collects broadcasts and hands them over in batches. */
         BATCH("硬體過濾・批次回報"),
 
         /** As [STATUS], but results are delivered through the system instead of a live callback. */
@@ -71,6 +77,9 @@ class PodsScanner(
     private val recentlyForwarded = ArrayDeque<String>()
 
     val tallies: Map<Recipe, Tally> = Recipe.entries.associateWith { Tally() }
+
+    /** Bluetooth address of the connected AirPods, for [Recipe.ADDRESS]; null when none are connected. */
+    var targetAddress: String? = null
 
     var appleResults = 0L
         private set
@@ -148,6 +157,8 @@ class PodsScanner(
             return false
         }
         if (recipe == Recipe.BATCH && !adapter.isOffloadedScanBatchingSupported) return false
+        val address = targetAddress
+        if (recipe == Recipe.ADDRESS && address == null) return false
 
         val settings = ScanSettings.Builder()
             .setScanMode(if (fast) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
@@ -162,7 +173,11 @@ class PodsScanner(
                 }
             }
             .build()
-        val filters = if (recipe == Recipe.OPEN) emptyList() else listOf(statusFilter())
+        val filters = when (recipe) {
+            Recipe.OPEN -> emptyList()
+            Recipe.ADDRESS -> listOf(ScanFilter.Builder().setDeviceAddress(address).build())
+            else -> listOf(statusFilter())
+        }
 
         return try {
             if (recipe == Recipe.INTENT) {

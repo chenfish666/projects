@@ -97,8 +97,6 @@ class MainActivity : AppCompatActivity() {
         setUpListeningMode()
         setUpEqualizerCard()
         setUpAlarmCard()
-        binding.scanCompat.isChecked = prefs.scanCompat
-        binding.scanCompat.setOnCheckedChangeListener { _, checked -> prefs.scanCompat = checked }
         binding.diagnosticsCopy.setOnClickListener {
             val clipboard = getSystemService(ClipboardManager::class.java)
             clipboard.setPrimaryClip(ClipData.newPlainText("PodsPanel", diagnosticsReport()))
@@ -152,7 +150,7 @@ class MainActivity : AppCompatActivity() {
                     "・懸浮視窗 ${yesNo(Permissions.hasOverlay(this@MainActivity))}" +
                     "・不限制背景 ${yesNo(Permissions.ignoresBatteryOptimizations(this@MainActivity))}"
             )
-            appendLine("定位服務：${if (location) "開" else "關"}・相容掃描模式：${if (prefs.scanCompat) "開" else "關"}")
+            appendLine("定位服務：${if (location) "開" else "關"}")
             appendLine("超級島：${Island.availability(this@MainActivity).label}")
             appendLine("服務：${if (AppState.serviceRunning.value) "執行中" else "未執行"}・${AppState.scanProblem.value ?: "掃描無錯誤"}")
             appendLine(AppState.scan.value.describe())

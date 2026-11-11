@@ -78,7 +78,6 @@ class PodsService : Service() {
     private var probeDone = false
     private var probeBaseline = emptyMap<PodsScanner.Recipe, Long>()
     private var expectSinceMs = 0L
-    private var compatApplied = false
     private var accepted = 0L
 
     // The direct connection to the AirPods, when the phone manages to open one.
@@ -86,6 +85,7 @@ class PodsService : Service() {
     private val aapState = AapState()
     private var aapConnected = false
     private var aapDetail = ""
+    private val aapLog = ArrayDeque<String>()
     private var isPods = false
 
     /** Levels from the previous run, shown until fresh ones arrive. */
@@ -185,7 +185,6 @@ class PodsService : Service() {
         prefs.store.registerOnSharedPreferenceChangeListener(prefsListener)
         equalizer.startListening()
         alarm.start()
-        compatApplied = prefs.scanCompat
         mainRecipe = baseRecipe()
         expectBroadcasts()
         applySettings()
@@ -291,6 +290,8 @@ class PodsService : Service() {
     /** Opens the direct connection when AirPods are connected, and closes it when they are not. */
     private fun syncAap() {
         val device = if (isPods) headphones?.let(::bluetoothDeviceOf) else null
+        scanner.targetAddress = device?.address
+        if (!probing) mainRecipe = baseRecipe()
         if (device == null) {
             closeAap()
             return
@@ -309,6 +310,10 @@ class PodsService : Service() {
 
     private fun onAapState(state: AapLink.State, detail: String) {
         aapDetail = detail
+        // A short history, so a report taken at any moment shows how earlier attempts ended.
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())
+        aapLog.addLast("$time $detail")
+        if (aapLog.size > AAP_LOG_SIZE) aapLog.removeFirst()
         val connected = state == AapLink.State.CONNECTED
         if (connected) AppState.scanProblem.value = null
         if (aapConnected && !connected) {
@@ -447,13 +452,6 @@ class PodsService : Service() {
 
     private fun applySettings() {
         publish()
-        // The compatibility switch overrides whatever level was found automatically.
-        if (prefs.scanCompat != compatApplied) {
-            compatApplied = prefs.scanCompat
-            endProbe(adopt = false)
-            mainRecipe = baseRecipe()
-            expectBroadcasts()
-        }
         updateScan()
         applyEqualizer()
         alarm.evaluate()
@@ -481,9 +479,14 @@ class PodsService : Service() {
     }
 
     /** The way of scanning to use when nothing is being tried out. */
-    private fun baseRecipe(): PodsScanner.Recipe = when {
-        prefs.scanCompat -> PodsScanner.Recipe.OPEN
-        else -> PodsScanner.Recipe.entries.firstOrNull { it.name == prefs.scanRecipe } ?: PodsScanner.Recipe.STATUS
+    private fun baseRecipe(): PodsScanner.Recipe {
+        val saved = PodsScanner.Recipe.entries.firstOrNull { it.name == prefs.scanRecipe }
+        // The address recipe needs connected headphones; without them, fall back to the default.
+        return if (saved == null || saved == PodsScanner.Recipe.ADDRESS && scanner.targetAddress == null) {
+            PodsScanner.Recipe.STATUS
+        } else {
+            saved
+        }
     }
 
     /** True when the connected headphones are ones that send the status broadcasts. */
@@ -510,7 +513,7 @@ class PodsService : Service() {
      * with the screen on, where every way can deliver.
      */
     private fun maybeProbe() {
-        if (probing || probeDone || prefs.scanCompat || !podsConnected()) return
+        if (probing || probeDone || !podsConnected()) return
         if (getSystemService(PowerManager::class.java)?.isInteractive != true) return
         val now = SystemClock.elapsedRealtime()
         if (now - maxOf(scanner.lastFrameAtMs, expectSinceMs) < QUIET_MS) return
@@ -571,7 +574,7 @@ class PodsService : Service() {
             detail = scanner.detail(),
             direct = when {
                 aapLink == null -> if (headphones == null) "耳機未連線" else if (isPods) "找不到耳機的藍牙位址" else "不是 AirPods"
-                else -> aapDetail + podsDeviceType()
+                else -> aapDetail + podsDeviceType() + aapLog.joinToString("") { "\n  $it" }
             },
         )
     }
@@ -702,6 +705,7 @@ class PodsService : Service() {
         private const val CONNECT_POPUP_WINDOW_MS = 20_000L
         private const val POPUP_GAP_MS = 20_000L
         /** How long broadcasts may stay away before other ways of scanning are tried. */
+        private const val AAP_LOG_SIZE = 10
         private const val QUIET_MS = 3_000L
 
         /** How long every way of scanning runs side by side. */

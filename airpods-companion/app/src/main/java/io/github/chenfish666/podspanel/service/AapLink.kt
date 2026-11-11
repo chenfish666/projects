@@ -74,11 +74,12 @@ class AapLink(
         }
     }
 
-    private var lastFailure: String? = null
+    /** Phones differ in which of the two channel kinds they can open, so attempts alternate. */
+    private fun secureAttempt() = attempt % 2 == 1
 
     private fun connect() {
         if (closed) return
-        report(State.CONNECTING, "連線中" + (lastFailure?.let { "（上次：$it）" } ?: ""))
+        report(State.CONNECTING, "連線中" + if (secureAttempt()) "（加密通道）" else "")
         Thread({ run() }, "AAP-${device.address}").apply { isDaemon = true }.start()
     }
 
@@ -145,7 +146,6 @@ class AapLink(
         if (everReceived) attempt = 0
         val delay = RETRY_DELAYS_MS.getOrNull(attempt++)
         gaveUp = delay == null
-        lastFailure = failure
         report(State.FAILED, if (delay == null) failure else "$failure（稍後重試）")
         if (delay != null) main.postDelayed({ connect() }, delay)
     }
@@ -156,7 +156,8 @@ class AapLink(
     private fun createSocket(): BluetoothSocket {
         HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/")
         val method = BluetoothDevice::class.java.getDeclaredMethod(
-            "createInsecureL2capSocket", Int::class.javaPrimitiveType,
+            if (secureAttempt()) "createL2capSocket" else "createInsecureL2capSocket",
+            Int::class.javaPrimitiveType,
         )
         return method.invoke(device, AapProtocol.PSM) as BluetoothSocket
     }

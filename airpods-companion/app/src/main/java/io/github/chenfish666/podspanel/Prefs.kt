@@ -95,11 +95,6 @@ class Prefs(context: Context) {
         get() = store.getString(KEY_LAST_STATUS, null)
         set(v) = store.edit().putString(KEY_LAST_STATUS, v).apply()
 
-    /** Scan without a hardware filter. Slower on battery, but some firmware drops filtered results. */
-    var scanCompat: Boolean
-        get() = store.getBoolean(KEY_SCAN_COMPAT, false)
-        set(v) = store.edit().putBoolean(KEY_SCAN_COMPAT, v).apply()
-
     companion object {
         const val KEY_POPUP_CONNECT = "popup_connect"
         const val KEY_POPUP_LID = "popup_lid"
@@ -115,7 +110,6 @@ class Prefs(context: Context) {
         const val KEY_ALARM_RINGTONE = "alarm_ringtone"
         const val KEY_SAVED_ALARM_VOLUME = "saved_alarm_volume"
         const val KEY_SAVED_MUSIC_VOLUME = "saved_music_volume"
-        const val KEY_SCAN_COMPAT = "scan_compat"
         const val KEY_SCAN_RECIPE = "scan_recipe"
         const val KEY_LAST_MODEL = "last_model"
         const val KEY_LAST_STATUS = "last_status"
