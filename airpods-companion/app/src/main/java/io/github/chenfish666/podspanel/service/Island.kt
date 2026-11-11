@@ -2,6 +2,7 @@ package io.github.chenfish666.podspanel.service
 
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.PendingIntent
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -70,9 +71,16 @@ object Island {
      * shows the lower of the two levels.
      *
      * @param appear let the island open up once, used when it first appears
+     * @param onTap what a tap on the opened island starts
      * @return null when the extras could not be built
      */
-    fun build(context: Context, title: String, status: PodsStatus, appear: Boolean): Notification? = try {
+    fun build(
+        context: Context,
+        title: String,
+        status: PodsStatus,
+        appear: Boolean,
+        onTap: PendingIntent,
+    ): Notification? = try {
         fun level(percent: Int?, charging: Boolean) = when {
             percent == null -> "—"
             charging -> "$percent%⚡"
@@ -123,6 +131,7 @@ object Island {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
+            .setContentIntent(onTap)
             .addExtras(island.buildResourceBundle())
             .build()
             .also { it.extras.putString("miui.focus.param", island.buildJsonParam()) }

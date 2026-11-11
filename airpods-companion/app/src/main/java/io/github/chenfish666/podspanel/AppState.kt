@@ -27,6 +27,12 @@ object AppState {
     /** Noise control mode, or null while the direct connection is down or the model has none. */
     val listeningMode = MutableStateFlow<AapProtocol.ListeningMode?>(null)
 
+    /**
+     * True when AirPods are connected but this phone could not open the direct connection to
+     * them, which is what noise control and exact levels depend on.
+     */
+    val directUnavailable = MutableStateFlow(false)
+
     /** What the scanner has seen so far; shown in the app so a problem can be told apart. */
     data class ScanInfo(
         val level: String = "",

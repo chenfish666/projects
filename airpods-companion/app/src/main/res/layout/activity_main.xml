@@ -103,6 +103,21 @@
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <TextView
+                    android:id="@+id/directNote"
+                    style="@style/Hint"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/direct_note"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/directRetry"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/direct_retry"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/statusProblem"
                     style="@style/Hint"
                     android:layout_marginTop="12dp"
@@ -165,18 +180,6 @@
                     android:layout_height="wrap_content"
                     android:text="@string/island_settings"
                     android:visibility="gone" />
-
-                <TextView
-                    style="@style/Hint"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/service_notification_hint" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/serviceNotification"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/service_notification_hide" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/earPause"

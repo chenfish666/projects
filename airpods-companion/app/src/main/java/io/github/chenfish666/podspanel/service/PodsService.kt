@@ -183,6 +183,12 @@ class PodsService : Service() {
                 if (aapLink?.gaveUp == true) closeAap()
                 syncAap()
             }
+            ACTION_RETRY_DIRECT -> {
+                prefs.directFailedOnBuild = null
+                directEverConnected = false
+                closeAap()
+                syncAap()
+            }
             ACTION_SET_MODE -> AapProtocol.ListeningMode.fromWire(intent.getIntExtra(EXTRA_MODE, -1))?.let {
                 aapLink?.send(AapProtocol.setListeningMode(it))
             }
@@ -228,6 +234,7 @@ class PodsService : Service() {
         scanner.stop()
         equalizer.release()
         popup.dismiss()
+        AppState.directUnavailable.value = false
         AppState.serviceRunning.value = false
         AppState.pods.value = null
         AppState.headphones.value = null
@@ -326,9 +333,11 @@ class PodsService : Service() {
         scanner.targetAddress = device?.address
         if (!probing) mainRecipe = baseRecipe()
         if (device == null) {
+            AppState.directUnavailable.value = false
             closeAap()
             return
         }
+        AppState.directUnavailable.value = directUnavailable()
         if (aapLink != null || directUnavailable()) return
         aapLink = AapLink(device, ::onAapEvent, ::onAapState).also { it.open() }
     }
@@ -357,6 +366,7 @@ class PodsService : Service() {
         } else if (state == AapLink.State.FAILED && aapLink?.gaveUp == true && !directEverConnected) {
             // Every attempt failed without the channel ever opening: this phone cannot do it.
             prefs.directFailedOnBuild = Build.DISPLAY
+            AppState.directUnavailable.value = true
         }
         if (aapConnected && !connected) {
             aapState.reset()
@@ -660,6 +670,11 @@ class PodsService : Service() {
     private data class StatusContent(val title: String, val text: String)
 
     private fun statusContent(tracked: PodsTracker.Tracked?): StatusContent {
+        // With the levels in the island, this notification only exists because Android demands
+        // one of a background service. Say so, and how to get rid of it, instead of repeating them.
+        if (islandWanted(tracked, ignorePopup = true)) {
+            return StatusContent("PodsPanel 背景執行中", "長按這則通知可以把它關掉，超級島不受影響")
+        }
         val title = tracked?.status?.let(::displayName) ?: getString(R.string.app_name)
         val text = when {
             tracked == null -> AppState.scanProblem.value ?: "尚未偵測到 AirPods"
@@ -709,7 +724,7 @@ class PodsService : Service() {
         val content = displayName(tracked.status) + "|" + BatteryViews.summary(tracked.status)
         if (content == islandContent) return
         val appear = islandContent == null
-        val notification = Island.build(this, displayName(tracked.status), tracked.status, appear) ?: return
+        val notification = Island.build(this, displayName(tracked.status), tracked.status, appear, openApp()) ?: return
         islandContent = content
         notify(NOTIFICATION_ISLAND, notification)
     }
@@ -774,6 +789,7 @@ class PodsService : Service() {
         private const val ACTION_FAST_SCAN = "io.github.chenfish666.podspanel.FAST_SCAN"
         private const val ACTION_SET_MODE = "io.github.chenfish666.podspanel.SET_MODE"
         private const val ACTION_CONNECTING = "io.github.chenfish666.podspanel.CONNECTING"
+        private const val ACTION_RETRY_DIRECT = "io.github.chenfish666.podspanel.RETRY_DIRECT"
 
         /** Long enough for headphones that are still connecting to show up as an audio device. */
         private const val IDLE_STOP_MS = 30_000L
@@ -840,6 +856,9 @@ class PodsService : Service() {
         fun testPopup(context: Context) = start(context, ACTION_TEST_POPUP)
         fun testAlarm(context: Context) = start(context, ACTION_TEST_ALARM)
         fun fastScan(context: Context) = start(context, ACTION_FAST_SCAN)
+
+        /** Has another go at the direct connection after it was given up on. */
+        fun retryDirect(context: Context) = start(context, ACTION_RETRY_DIRECT)
 
         /** Called when the system reports Bluetooth headphones connecting. */
         fun onHeadphonesConnecting(context: Context) = start(context, ACTION_CONNECTING)

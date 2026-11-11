@@ -2,6 +2,7 @@ package io.github.chenfish666.podspanel.ui
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
@@ -112,6 +113,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 launch { AppState.eq.collect(::showEqState) }
                 launch { AppState.listeningMode.collect(::showListeningMode) }
+                launch {
+                    AppState.directUnavailable.collect { unavailable ->
+                        val visibility = if (unavailable) View.VISIBLE else View.GONE
+                        binding.directNote.visibility = visibility
+                        binding.directRetry.visibility = visibility
+                    }
+                }
                 launch { AppState.scan.collect { binding.diagnostics.text = it.describe() } }
             }
         }
@@ -204,6 +212,10 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun setUpListeningMode() {
+        binding.directRetry.setOnClickListener {
+            PodsService.retryDirect(this)
+            toast("重新嘗試中，大約一分鐘後會有結果")
+        }
         binding.listeningMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked || syncing) return@addOnButtonCheckedListener
             modeButtons[checkedId]?.let { PodsService.setListeningMode(this, it) }
@@ -266,6 +278,23 @@ class MainActivity : AppCompatActivity() {
                     open(intent, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 })
             }
+            if (serviceNotificationVisible()) {
+                add(
+                    SetupStep(
+                        "隱藏通知列的「背景執行」通知",
+                        "電量已經顯示在超級島。把這個通知類別關掉，通知列就不會再有項目，超級島不受影響。",
+                        R.string.setup_open,
+                    ) {
+                        open(
+                            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                                .putExtra(Settings.EXTRA_CHANNEL_ID, Channels.SERVICE),
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                        )
+                    }
+                )
+            }
             if (isXiaomi() && !prefs.store.getBoolean(KEY_AUTOSTART_SEEN, false)) {
                 add(SetupStep("自動啟動", "HyperOS 需要另外允許，重開機後才會自己啟動。", R.string.setup_open) {
                     prefs.store.edit().putBoolean(KEY_AUTOSTART_SEEN, true).apply()
@@ -297,6 +326,16 @@ class MainActivity : AppCompatActivity() {
         PodsService.start(this)
     }
 
+    /**
+     * Whether the notification Android requires of the background service is still listed in the
+     * shade although the island already shows the levels. Only the user can switch it off.
+     */
+    private fun serviceNotificationVisible(): Boolean {
+        if (!prefs.islandEnabled || Island.availability(this) != Island.Availability.AVAILABLE) return false
+        val channel = getSystemService(NotificationManager::class.java)?.getNotificationChannel(Channels.SERVICE)
+        return channel != null && channel.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
     private fun isXiaomi(): Boolean =
         Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco")
 
@@ -324,14 +363,6 @@ class MainActivity : AppCompatActivity() {
             open(
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri()),
-            )
-        }
-        binding.serviceNotification.setOnClickListener {
-            open(
-                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                    .putExtra(Settings.EXTRA_CHANNEL_ID, Channels.SERVICE),
-                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
             )
         }
         binding.popupConnect.isChecked = prefs.popupOnConnect
